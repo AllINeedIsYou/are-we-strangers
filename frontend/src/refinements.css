@@ -1,0 +1,115 @@
+/* Keep the horizontal anchor independent of the animated text width. */
+.auth-screen .brand-trigger{left:0;right:0;width:100%;top:50%;transform:translateY(-50%);text-align:center}
+.auth-screen.auth-open .brand-trigger{top:max(5.8vh,28px);transform:translateY(0)}
+.auth-screen .star{opacity:1;filter:none;animation:none}
+.auth-screen .star.is-twinkling{animation:auth-star-flash 3400ms cubic-bezier(.45,0,.55,1) both}
+@keyframes auth-star-flash{0%,100%{opacity:1;filter:brightness(1) drop-shadow(0 0 0 #ffffff00) drop-shadow(0 0 0 #ffffff00)}50%{opacity:1;filter:brightness(1.28) drop-shadow(0 0 12px #ffffffa6) drop-shadow(0 0 3px #ffffff70)}}
+@media(min-width:1450px){.auth-screen.auth-open .brand-trigger{top:7vh}}
+@media(max-height:790px) and (min-width:761px){.auth-screen.auth-open .brand-trigger{top:28px}}
+
+/* Compact message metrics shared by incoming and outgoing bubbles. */
+.message-row{min-height:40px;margin-top:4px;gap:0}
+.bubble{display:block;min-height:40px;max-width:78%;padding:9px 13px;font-size:17px;line-height:22px;border-radius:21px;cursor:default;touch-action:pan-y;-webkit-touch-callout:none}
+.bubble:after{content:'';display:block;clear:both}
+.message-meta{float:right;display:inline-flex;align-items:center;gap:4px;font-size:10px;line-height:15px;margin:7px 0 -1px 12px;padding:0}
+.message-meta svg{width:15px;height:15px}
+.incoming .bubble{border-bottom-left-radius:12px}
+.own .bubble{border-bottom-right-radius:12px}
+.bubble.context-active{outline:1px solid #dd647276;outline-offset:2px}
+.bubble:focus-visible{outline:1px solid #ffffff70;outline-offset:3px}
+.message-attachment{font-size:14px;line-height:20px;margin-bottom:3px}
+.message-quote{display:flex;flex-direction:column;border-left:2px solid #d4a8ad;border-radius:2px 6px 6px 2px;background:#ffffff09;padding:5px 9px;margin-bottom:7px;max-width:100%;width:100%;text-align:left;line-height:18px;overflow:hidden}
+.message-quote strong{font-size:12px;color:#efc8ce;font-weight:500}
+.message-quote>span{font-size:13px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;width:100%;color:#bcbcc2}
+.forwarded-label{font-size:11px;color:#dbb8bf;display:flex;align-items:center;gap:5px;margin-bottom:4px;line-height:16px}
+.incoming .forwarded-label{color:#aaaab1}
+.selection-check{width:22px;height:22px;flex-shrink:0;border:1px solid #ffffff40;border-radius:50%;display:grid;place-items:center;margin-right:12px;color:#fff}
+.message-row.own .selection-check{order:1;margin-right:0;margin-left:12px}
+.message-selected .selection-check{background:#9d001c;border-color:#ad1932}
+.message-selected .bubble{outline:1px solid #b5002755;outline-offset:1px}
+.selection-toolbar{display:flex;align-items:center;min-height:48px;padding:3px 22px;border-bottom:1px solid #ffffff12;background:#151518;gap:8px;flex-shrink:0}
+.selection-toolbar>span{font-size:13px;color:#d1d0d5}
+.selection-toolbar>div{display:flex;gap:5px;margin-left:auto}
+.selection-toolbar .icon-button{width:35px;height:35px}
+.selection-toolbar .icon-button svg{width:19px;height:19px}
+.pinned-bar{display:flex;align-items:center;gap:10px;padding:7px 25px;background:#121214;border-bottom:1px solid #ffffff10;flex-shrink:0}
+.pinned-bar>button:first-child{display:flex;align-items:center;gap:13px;text-align:left;flex:1;min-width:0;padding:2px 0}
+.pinned-bar>button>span{display:flex;flex-direction:column;gap:3px;min-width:0}
+.pinned-bar strong{font-size:11px;font-weight:500;color:#d18a96}
+.pinned-bar>button>span>span{font-size:12px;color:#aaa;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.pinned-bar svg{color:#b2a9ad}
+.pinned-bar .icon-button{width:28px;height:28px}
+.pinned-choice{display:flex;align-items:center;gap:12px;border-bottom:1px solid #ffffff12;width:100%;padding:15px 0;text-align:left;font-size:14px}
+.pinned-choice>span{flex:1;overflow-wrap:anywhere}
+.pinned-choice time{font-size:11px;color:#888}
+.composer-context{display:flex;align-items:center;gap:15px;margin:0 84px 10px;padding:9px 15px;border-left:2px solid #970020;background:#ffffff04;border-radius:0 9px 9px 0;min-width:0}
+.composer-context>svg{color:#a8a2a7;flex-shrink:0}
+.composer-context>span{display:flex;flex-direction:column;gap:5px;flex:1;min-width:0;font-size:12px}
+.composer-context strong{font-weight:500;color:#e3bcc2;font-size:12px}
+.composer-context>span>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#8b8b94}
+.composer-context .icon-button{width:26px;height:26px}
+.modal-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:25px}
+.modal-actions .primary{min-height:42px;font-size:14px}
+.undo-notice{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);z-index:45;display:flex;gap:20px;align-items:center;padding:7px 12px 7px 19px;border-radius:14px;background-color:#252528ee;font-size:13px;max-width:calc(100% - 24px)}
+.undo-notice>button:not(.icon-button){color:#f0c5cc;padding:9px 0}
+.undo-notice .icon-button{width:25px;height:25px}
+
+/* Native dialog supplies focus containment and Escape / backdrop dismissal. */
+.message-context{position:fixed;inset:auto;margin:0;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);width:190px;padding:5px;border-radius:14px;color:#f2eff0;background-color:#1c1c20f5;overflow:auto}
+.message-context::backdrop{background:#00000018}
+.message-context [role=menu]{display:flex;flex-direction:column}
+.message-context button{display:flex;align-items:center;gap:10px;text-align:left;min-height:32px;width:100%;padding:7px 10px;font-size:13px;line-height:18px;border-radius:7px}
+.message-context button>svg{width:16px;height:16px;stroke-width:1.6}
+.message-context button>.context-chevron{width:12px;height:12px;margin-left:auto}
+.message-context button:hover,.message-context button:focus-visible{background:#ffffff0a;outline:none}
+.message-context button.danger{color:#eb5f6d}
+.context-divider{height:1px;background:#ffffff10;margin:3px 9px;flex-shrink:0}
+.context-read{display:flex;align-items:center;gap:10px;padding:6px 10px;color:#a4a1a9;font-size:11px;line-height:15px}
+.context-read>svg{width:16px;height:16px;stroke-width:1.6}
+.context-read small{display:block;font-size:9px;color:#77747e;margin-top:2px}
+
+@media(min-width:761px){
+  .messenger{grid-template-columns:clamp(280px,24vw,340px) minmax(0,1fr)}
+  .sidebar-header{height:112px;padding:23px 22px 19px}
+  .brand-compact .brand-type{font-size:28px}
+  .brand-compact .star{width:17px;height:32px}
+  .compose-new{width:36px;height:36px;margin-top:1px}
+  .compose-new svg{width:22px;height:22px}
+  .search-wrap{height:39px;margin:0 13px 12px;padding:0 14px;gap:9px}
+  .search-wrap input{font-size:14px}
+  .search-wrap>svg{width:17px;height:17px}
+  .chat-list{padding:0 9px}
+  .chat-card{min-height:66px;margin-bottom:4px;padding:9px 11px;border-radius:16px;gap:11px}
+  .chat-card .avatar{width:46px;height:46px;font-size:24px}
+  .chat-text{gap:5px}
+  .chat-title{font-size:15px;line-height:18px}
+  .chat-preview{font-size:13px;line-height:16px}
+  .chat-meta{padding-top:2px;font-size:11px;gap:7px}
+  .bottom-nav{height:80px}
+  .bottom-nav svg{width:25px;height:25px}
+}
+@media(max-width:760px){
+  .auth-screen.auth-open .brand-trigger{top:max(6svh,30px)}
+  .message-row{min-height:32px;margin-top:3px}
+  .bubble{min-height:32px;max-width:90%;padding:6px 10px;font-size:15px;line-height:20px;border-radius:18px}
+  .message-meta{font-size:9px;line-height:13px;margin:5px 0 -1px 8px;gap:3px}
+  .message-meta svg{width:13px;height:13px}
+  .incoming .bubble{border-bottom-left-radius:10px}
+  .own .bubble{border-bottom-right-radius:10px}
+  .message-quote{padding:4px 7px;margin-bottom:5px}
+  .message-quote>span{font-size:12px}
+  .forwarded-label{font-size:10px}
+  .selection-toolbar{padding:4px 9px;gap:3px}
+  .selection-toolbar>span{font-size:12px}
+  .selection-toolbar>div{gap:1px}
+  .selection-toolbar .icon-button{width:32px;height:32px}
+  .selection-check{width:19px;height:19px;margin-right:7px}
+  .message-row.own .selection-check{margin-left:7px}
+  .composer-context{margin:0 4px 7px;padding:7px 10px;gap:10px}
+  .pinned-bar{padding:6px 15px}
+  .message-context{width:202px}
+  .message-context button{min-height:34px}
+  .message-context::backdrop{background:#00000030}
+}
+@media(pointer:coarse){.bubble{-webkit-user-select:none;user-select:none}}
+@media(prefers-reduced-motion:reduce){.auth-screen .star{animation:none}}

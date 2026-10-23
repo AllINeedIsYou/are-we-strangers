@@ -1,0 +1,43 @@
+.profile-details-tabs .story-tab-star{width:14px;height:21px;overflow:visible}
+.conversation-search{position:absolute;top:65px;left:14px;right:14px;z-index:8}
+.conversation-search-bar{height:36px;display:flex;align-items:center;gap:3px;padding:0 7px 0 13px;border-radius:21px;background:#191a20a6;backdrop-filter:blur(20px) saturate(.8);-webkit-backdrop-filter:blur(20px) saturate(.8);border:1px solid #ffffff24;box-shadow:inset 0 1px #ffffff0d,0 2px 7px #0003}
+.search-leading{width:15px;height:15px;stroke-width:1.5;color:#a9a3af;margin-right:6px;flex-shrink:0}
+.conversation-search-bar input{flex:1;min-width:0;background:transparent;border:0;height:100%;font-size:13px;padding:0;color:#f0edf1}
+.conversation-search-bar input:focus{outline:0}
+.conversation-search-bar button{width:26px;height:28px;display:grid;place-items:center;border-radius:50%;flex-shrink:0;color:#d4ccd7;padding:0;transition:background .2s,opacity .2s}
+.conversation-search-bar button:hover{background:#ffffff0a}
+.conversation-search-bar button:disabled{opacity:.28;cursor:default}
+.conversation-search-bar button svg{width:16px;height:16px;stroke-width:1.6}
+.search-match-count{font-size:10px;white-space:nowrap;color:#9c929f;margin:0 5px}
+.conversation-search-results{position:absolute;left:0;right:0;top:43px;border-radius:15px;background:#19191ee6;backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid #ffffff16;box-shadow:0 10px 24px #0005,inset 0 1px #ffffff08;overflow:hidden;opacity:0;visibility:hidden;transform:translateY(-7px);transition:opacity .2s,transform .25s cubic-bezier(.2,.7,.2,1),visibility .2s;pointer-events:none}
+.conversation-search-results.search-results-open{opacity:1;visibility:visible;transform:translateY(0);pointer-events:auto}
+.conversation-search-results>[role=listbox]{max-height:min(54dvh,480px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#ffffff35 transparent}
+.conversation-search-results [role=option]{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:7px 11px;min-height:47px;transition:background .15s;border-bottom:1px solid #ffffff08}
+.conversation-search-results [role=option]:last-child{border:0}
+.conversation-search-results [role=option]:hover,.conversation-search-results [role=option][aria-selected=true]{background:#8f163129}
+.conversation-search-results .avatar{width:29px;height:29px;font-size:16px;border-color:#ffffff45}
+.search-result-copy{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.search-result-copy strong{font-size:11px;font-weight:500;color:#d6b9c2}
+.search-result-copy>span{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ddd7df;line-height:1.3}
+.conversation-search-results time{font-size:10px;color:#8f8492;flex-shrink:0;align-self:flex-start;margin-top:3px}
+.message-body mark,.search-result-copy mark{color:#fff0f4;background:#a52b4d70;border-radius:2px;padding:0;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.search-active-row{position:relative;isolation:isolate}
+.search-active-row:before{content:"";position:absolute;inset:-4px -25px;border-radius:8px;background:#b9667e20;border-top:1px solid #c1768b13;border-bottom:1px solid #c1768b13;z-index:-1;pointer-events:none}
+.search-active-row .message-body mark{background:#ad244b;color:#fff}
+.search-no-results{text-align:center;padding:33px 15px;color:#928897}
+.search-no-results>svg{width:23px;height:23px;stroke-width:1.4}
+.search-no-results p{font-size:13px;color:#d5cbd8;margin:11px 0 6px}
+.search-no-results span{font-size:11px}
+.conversation:has(.conversation-search) .messages-scroll{padding-top:116px}
+.conversation:has(.conversation-search) .pinned-bar{display:none}
+@media(max-width:760px){
+ .conversation-search{left:9px;right:9px;top:65px}
+ .conversation-search-bar{height:35px;padding-left:11px;gap:1px}
+ .conversation-search-bar input{font-size:12px}
+ .conversation-search-bar button{width:23px}
+ .conversation-search-bar button svg{width:15px;height:15px}
+ .search-match-count{font-size:9px;margin:0 2px}
+ .conversation-search-results [role=option]{padding:8px 10px;gap:8px}
+ .search-active-row:before{inset:-5px -18px;border-radius:0}
+}
+@media(prefers-reduced-motion:reduce){.conversation-search-results{transition:none}}

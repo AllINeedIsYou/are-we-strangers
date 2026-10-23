@@ -1,0 +1,117 @@
+/* The core never changes brightness. Only a pre-blurred halo breathes. */
+.brand .star,.auth-screen .brand .star,.auth-screen .brand-trigger:hover .star,.brand .star.is-pulsing{filter:none!important;animation:none!important;opacity:1;overflow:visible}
+.brand .star path{animation:none!important}
+.star-core{fill:#f7f6f4}
+.star-halo{opacity:0;pointer-events:none}
+.star.is-ambient .star-halo{opacity:.08;animation:star-breathe 3s cubic-bezier(.45,0,.55,1) infinite;will-change:opacity}
+.star.is-pulsing .star-halo{animation:star-notification 1.4s ease-in-out both;will-change:opacity}
+@keyframes star-breathe{0%,100%{opacity:.06}50%{opacity:.95}}
+@keyframes star-notification{0%,100%{opacity:0}30%,55%{opacity:1}}
+/* Optical centering of the paper plane, without button padding or icon baseline. */
+.send-button,.record-action{padding:0!important;display:grid;place-items:center;line-height:0}
+.send-button>.lucide-send,.action-glyph>.lucide-send{transform:translate(-1px,1px);display:block;margin:0}
+.action-glyph{width:100%;height:100%;display:grid;place-items:center;line-height:0}
+.action-glyph svg{display:block;margin:0}
+/* Multi-select replaces the composer rather than adding a second toolbar. */
+.selection-dock{height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:relative}
+.selection-dock>.round,.selection-dock-actions>.round{width:40px;height:40px}
+.selection-dock .icon-button{padding:0;border-radius:50%}
+.selection-dock svg{width:20px;height:20px}
+.selection-count{position:absolute;left:50%;transform:translateX(-50%);padding:6px 11px;border-radius:14px;background:#181b20c4;font-size:11px;white-space:nowrap;pointer-events:none}
+.selection-dock-actions{display:flex;align-items:center;gap:7px;margin-left:auto}
+.selection-dock-actions>.icon-button:not(.round){width:30px;height:30px}
+.selection-done{width:34px;height:34px;border-radius:50%;align-self:center;background:#a00022;color:#fff}
+.is-selecting .header-actions{display:none}
+.is-selecting .messages-scroll{padding-right:57px}
+.is-selecting .message-row{position:relative}
+.is-selecting .selection-check,.is-selecting .message-row.own .selection-check{position:absolute;right:-40px;left:auto;top:50%;transform:translateY(-50%);margin:0;order:2;width:21px;height:21px;min-width:21px;min-height:21px}
+.message-selected .bubble{outline:none}
+.forward-dialog{width:min(310px,calc(100% - 36px));padding:10px;border-radius:17px;max-height:min(70dvh,530px);background:#181b20e8;overflow:auto}
+.forward-dialog>header{margin:0 0 8px;padding:1px 3px}
+.forward-dialog h2{font-size:14px;font-weight:500;letter-spacing:0}
+.forward-dialog>header .icon-button{width:25px;height:25px}
+.forward-dialog>header svg{width:17px;height:17px}
+.forward-search{display:flex;align-items:center;gap:8px;margin:0 0 7px;background:#ffffff06;border:1px solid #ffffff0a;border-radius:18px;padding:0 11px;min-height:31px;color:#a8a7af}
+.forward-search input{background:none;border:0;width:100%;height:31px;font-size:12px}
+.forward-contact{display:flex;gap:9px;align-items:center;width:100%;padding:7px 6px;border-radius:8px;text-align:left}
+.forward-contact:hover,.forward-contact:focus-visible{background:#ffffff08}
+.forward-contact .avatar{width:32px;height:32px;font-size:18px}
+.forward-contact strong{display:block;font-size:13px;font-weight:400}
+.forward-contact small{display:block;font-size:10px;color:#85858f;margin-top:3px}
+.message-context{overflow:visible}
+.forward-popover{position:absolute;top:0;left:calc(100% + 8px);width:210px;padding:6px;border-radius:13px;background-color:#1b1d22f2;z-index:2}
+.message-context .forward-popover .forward-contact{min-height:39px;gap:8px;padding:5px;font-size:12px}
+.message-context .forward-popover .avatar{width:27px;height:27px;font-size:16px}
+.moment-picked{max-height:240px;overflow:auto;border:1px solid #ffffff12;border-radius:12px;padding:0 12px}
+.moment-picked .moment-entry:last-child{border:0}
+.moment-picked .moment-entry{padding:8px 0;margin:3px 0}
+.moment-picked .moment-entry p{font-size:13px;margin:6px 0}
+.delete-dialog{width:min(370px,calc(100% - 36px));padding:22px 20px;border-radius:22px}
+.delete-dialog>header{margin-bottom:18px}
+.delete-dialog>header h2{font-size:16px;line-height:1.4}
+.delete-scope{font-size:14px;gap:10px;padding:0 0 9px}
+.delete-scope input{width:21px;height:21px}
+.delete-dialog .modal-actions{margin-top:13px;gap:10px}
+.delete-dialog .modal-actions button{min-height:39px;padding:8px 12px;font-size:14px}
+.composer-feedback{font-size:12px;line-height:1.4;color:#d797a2;margin:8px 50px 0;display:flex;align-items:center;gap:10px}
+.composer-feedback button{margin-left:auto;display:flex;padding:3px}
+.record-error{position:relative;left:auto;right:auto;bottom:auto;border:0;border-radius:0;background:none;padding:6px 0 0;margin:0 50px;box-shadow:none;font-size:12px}
+/* A voice preview fills the whole available input width, at any duration. */
+.record-review .voice-player{width:100%;max-width:none}
+.record-review .voice-track{flex:1;align-self:stretch;display:flex;align-items:flex-start;justify-content:center;padding:1px 0 11px;min-height:34px}
+.record-review .voice-wave{width:100%;justify-content:space-between;gap:0;height:22px;align-items:center}
+.record-review .voice-wave i{width:2px;min-width:1px;flex:1;max-width:3px;margin-right:2px}
+.record-review .voice-time{bottom:0;font-size:10px;line-height:11px}
+.record-review .voice-speed{margin-left:5px}
+/* The recording control follows the drag and eases into the locked position. */
+.record-action{transform:translate3d(var(--record-drag-x,0px),var(--record-drag-y,0px),0);transition:transform .24s cubic-bezier(.2,.75,.2,1),background .2s;will-change:transform}
+.is-dragging-record .record-action{transition:transform .1s linear;box-shadow:0 0 0 7px #93002116,inset 0 1px 1px #ffffff22}
+.is-record-locked .record-action{animation:record-lock-settle .3s cubic-bezier(.2,.7,.2,1)}
+@keyframes record-lock-settle{from{transform:translateY(-35px) scale(1.08)}to{transform:translateY(0) scale(1)}}
+.record-lock{bottom:58px;transition:transform .15s,background .15s;transform:translateY(calc(var(--lock-progress,0)*-12px));background-color:rgb(80 10 28 / calc(.2 + var(--lock-progress,0)*.5))}
+.lock-progress{position:absolute;top:3px;left:0;width:40px;height:40px;transform:rotate(-90deg);pointer-events:none}
+.lock-progress circle{fill:none;stroke:#e3b2bf;stroke-width:1.4;stroke-linecap:round;transition:stroke-dasharray .1s linear}
+.record-circle{transform:translateY(var(--circle-drag-y,0px));transition:transform .14s cubic-bezier(.2,.7,.2,1),box-shadow .14s}
+/* Move the crop, not a guessed center crop of the source photo. */
+.avatar-crop-dialog{width:min(384px,calc(100% - 24px));padding:20px;border-radius:22px;max-height:94dvh}
+.avatar-crop-dialog>header{margin-bottom:8px}
+.avatar-crop-dialog h2{font-size:19px}
+.crop-hint{font-size:12px;color:#aaa8b2;margin-bottom:14px}
+.avatar-crop-stage{width:100%;max-width:320px;aspect-ratio:1;position:relative;overflow:hidden;margin:0 auto;background:#050506;border-radius:12px;touch-action:none;user-select:none;-webkit-user-select:none}
+.avatar-crop-stage>img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none}
+.avatar-crop-stage>svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.crop-handle{position:absolute;border-radius:50%;cursor:move;outline-offset:3px}
+.crop-handle:focus-visible{outline:2px solid #b53958}
+.crop-adjust{display:flex;align-items:center;gap:9px;margin:14px 0 7px;color:#9b98a2}
+.crop-adjust input{flex:1;min-width:0;accent-color:#a60028;cursor:pointer}
+.crop-adjust canvas{width:44px;height:44px;border-radius:50%;border:1px solid #ffffff24;margin-left:8px}
+.avatar-crop-dialog .modal-actions{margin-top:12px;gap:10px;display:grid;grid-template-columns:1fr 1fr}
+.avatar-crop-dialog .modal-actions button{min-height:39px;font-size:13px;padding:9px 11px}
+.inline-error{font-size:12px;color:#dfa2af;line-height:1.5;margin:10px 0}
+@media(max-width:760px){
+ .message-row{margin-top:7px}
+ .message-row.own+.message-row.incoming,.message-row.incoming+.message-row.own{margin-top:13px}
+ .bubble{max-width:84%}
+ .photo-bubble{max-width:84%}
+ .messages-scroll{padding-left:18px;padding-right:18px}
+ .messages-inner{padding-bottom:8px}
+ .selection-dock{height:40px;gap:7px}
+ .selection-dock>.round,.selection-dock-actions>.round{width:36px;height:36px}
+ .selection-dock-actions{gap:2px}
+ .selection-dock-actions>.icon-button:not(.round){width:28px;height:28px}
+ .selection-dock-actions svg{width:18px;height:18px}
+ .selection-count{font-size:10px;padding:5px 8px;left:50%}
+ .is-selecting .messages-scroll{padding-right:48px}
+ .is-selecting .selection-check,.is-selecting .message-row.own .selection-check{right:-33px}
+ .selection-done{width:29px;height:29px}
+ .delete-dialog{width:min(340px,calc(100% - 38px));padding:21px 18px}
+ .delete-dialog>header h2{font-size:15px}
+ .delete-scope{font-size:13px}
+ .delete-dialog .modal-actions button{min-height:37px;font-size:13px}
+ .record-review .voice-player{height:34px}
+ .record-review .voice-wave{height:21px}
+ .record-review .voice-time{font-size:9px}
+ .composer-feedback,.record-error{margin-left:3px;margin-right:3px}
+}
+@media(prefers-reduced-motion:reduce){.star .star-halo{animation:none!important;opacity:.2}.record-action,.record-circle{transition:none!important;animation:none!important}}
+.forward-dialog::backdrop{background:#0007;backdrop-filter:none;-webkit-backdrop-filter:none}
