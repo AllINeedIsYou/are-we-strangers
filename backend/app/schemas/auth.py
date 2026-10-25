@@ -1,8 +1,8 @@
-from datetime import datetime
-from pydantic import field_validator, Field
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from pydantic_extra_types.phone_numbers import PhoneNumber
-from fastapi import HTTPException
+from datetime import datetime
+from backend.app.schemas.user import UserResponse
+
 
 class RegisterRequest(BaseModel):
 
@@ -27,14 +27,9 @@ class RegisterRequest(BaseModel):
             raise ValueError('Пароль не должен содержать пробелы')
         return value
 
+class RegisterResponse(BaseModel):
+    user:UserResponse
+    verification_token:str
+    verification_expires_at:datetime
+    telegram_url: str
 
-
-class UserResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id:int
-    phone:PhoneNumber
-    email:EmailStr
-    name:str
-    username:str
-    created_at:datetime

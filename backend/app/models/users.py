@@ -19,3 +19,7 @@ class Users(Base):
 
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
 
+    phone_verified_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),default=None)
+
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
