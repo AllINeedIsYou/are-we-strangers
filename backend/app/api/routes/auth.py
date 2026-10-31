@@ -6,7 +6,7 @@ from backend.database.session import SessionDep
 from backend.app.core.telegram_config import telegram_settings
 from backend.app.schemas.user import UserResponse
 from backend.app.services.phone_verification import PhoneVerificationError,verify_phone_code
-
+from backend.app.api.dependencies import CurrentUser
 auth_router=APIRouter(prefix='/auth', tags=['Auth'])
 
 @auth_router.post('/register',summary='Регистрация', response_model=RegisterResponse,status_code=201)
@@ -50,5 +50,9 @@ def login(session:SessionDep,data:LoginRequest,respone:Response):
         secure=False,
         path="/",
     )
+    return user
+
+@auth_router.get('/me',response_model=UserResponse)
+def get_me_session(user:CurrentUser):
     return user
 
