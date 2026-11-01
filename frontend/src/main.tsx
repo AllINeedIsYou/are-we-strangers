@@ -13,3 +13,4 @@ import './polish.css';
 import './contact.css';
 
 import './search.css';
+import './auth.css';

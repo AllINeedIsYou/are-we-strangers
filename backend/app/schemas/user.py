@@ -15,3 +15,10 @@ class UserResponse(BaseModel):
     created_at:datetime
     phone_verified_at:datetime|None=None
     email_verified_at:datetime|None=None
+
+class PublicUserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id:int
+    name:str
+    username:str

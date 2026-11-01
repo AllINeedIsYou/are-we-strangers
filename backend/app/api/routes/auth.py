@@ -5,8 +5,7 @@ from backend.app.schemas.auth import RegisterRequest, RegisterResponse, VerifyPh
     ResendPhoneVerificationRequest, LoginRequest, VerifyEmailRequest, EmailVerificationResponse
 from backend.app.services.auth import register_user, resend_phone_verification,login_user
 from backend.app.services.auth_sessions import revoke_auth_session
-from backend.app.services.email_verification import verify_email_token, request_email_verification, \
-    send_email_verification
+from backend.app.services.email_verification import verify_email_token, request_email_verification
 from backend.database.session import SessionDep
 from backend.app.core.telegram_config import telegram_settings
 from backend.app.schemas.user import UserResponse

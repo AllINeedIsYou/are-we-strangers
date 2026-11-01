@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowUpRight, Bell, Bookmark, Check, ChevronRight, Copy, Forward, Pin, PinOff, Reply, Trash2, Clock3, Eye, EyeOff, LogOut, MessageCircle, MoreHorizontal, Paperclip, Phone, Search, Send, Settings, Smile, SquarePen, UserRound, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Bell, Bookmark, Check, ChevronRight, Copy, Forward, Pin, PinOff, Reply, Trash2, Clock3, LogOut, MessageCircle, MoreHorizontal, Paperclip, Phone, Search, Send, Settings, Smile, SquarePen, UserRound, X } from 'lucide-react';
 import { acceptChapter, canPulse, editMessage, forwardMessages, id, initialState, removeMessages, restoreMessages, restoreState, saveMoment, messageSummary, storageKey, timeNow, type MediaAsset, type DemoState, type Message, type RemovedMessage, type ReplySnapshot } from './domain';
 import { MessageBubble, MessageContextMenu, type MessageMenuTarget } from './MessageActions';
 import MediaView from './MediaView';
@@ -11,6 +11,11 @@ import ContactProfile from './ContactProfile';
 import ConversationSearch from './ConversationSearch';
 import { animateMessageDeletion } from './deletionAnimation';
 import { fileKind, storeMedia } from './mediaStore';
+import AuthForm from './AuthForm';
+import AccountSettings from './AccountSettings';
+import EmailConfirmation from './EmailConfirmation';
+import useAuthSession from './useAuthSession';
+import { authApi, friendlyError } from './authApi';
 
 function Star({pulse=false,ambient=false}:{pulse?:boolean;ambient?:boolean}){
  const bloom=useId().replaceAll(':','');const shape='M30 0C28 46 27 51 0 54C27 57 28 62 30 108C32 62 33 57 60 54C33 51 32 46 30 0Z';
@@ -27,23 +32,25 @@ function Modal({ title, children, onClose, className = '' }: { title: string; ch
   useEffect(() => { const node = dialog.current!; node.showModal(); node.querySelector<HTMLInputElement | HTMLTextAreaElement>('textarea,input:not([type=hidden]):not([type=checkbox])')?.focus(); return () => node.close(); }, []);
   return <dialog ref={dialog} className={`modal glass ${className}`} onCancel={onClose} onClick={event => { if (event.target === dialog.current) onClose(); }}><header><h2>{title}</h2><IconButton label="Закрыть" onClick={onClose}><X /></IconButton></header>{children}</dialog>;
 }
-function loadDemo() { try { return restoreState(localStorage.getItem(storageKey)); } catch { return initialState(); } }
+function loadDemo(userId: number) { try { return restoreState(localStorage.getItem(`${storageKey}.user.${userId}`)); } catch { return initialState(); } }
 type Panel = 'moments' | 'questions' | 'chapters';
 type ModalName = 'settings' | 'profile' | 'calls' | 'new-chat' | 'recovery' | 'reset-confirm' | 'pinned' | null;
 
 export default function App() {
+  const { user: account, checking, sessionError, acceptUser, clearUser, refresh } = useAuthSession();
   const [stage, setStage] = useState<'intro' | 'login' | 'chat'>('intro');
   const [register, setRegister] = useState(false);
-  const [login, setLogin] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [registration, setRegistration] = useState({phone:'',email:'',name:'',username:''});
-  const [avatar,setAvatar]=useState<MediaAsset|undefined>(()=>{try{return JSON.parse(localStorage.getItem('aws.avatar')||'null')||undefined;}catch{return undefined;}});
+  const [authBusy, setAuthBusy] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [accountError, setAccountError] = useState('');
+  const [emailRoute, setEmailRoute] = useState(() => /^\/verify-email\/?$/.test(window.location.pathname));
+  const [demoOwner, setDemoOwner] = useState<number | null>(null);
+  const [avatar,setAvatar]=useState<MediaAsset|undefined>();
   const [cropFile,setCropFile]=useState<File|null>(null);
   const avatarInput=useRef<HTMLInputElement>(null);
   const [deleting,setDeleting]=useState(false);
-  const [name, setName] = useState(() => { try { return localStorage.getItem('aws.name') || 'Алекс'; } catch { return 'Алекс'; } });
-  const [state, setState] = useState<DemoState>(loadDemo);
+  const [name, setName] = useState('Вы');
+  const [state, setState] = useState<DemoState>(initialState);
   const [chatId, setChatId] = useState('mira');
   const [mobileChat, setMobileChat] = useState(false);
   const [search, setSearch] = useState('');
@@ -90,7 +97,6 @@ export default function App() {
   const followBottom = useRef(true);
   const scrollIntent=useRef(0);
   const composer = useRef<HTMLTextAreaElement>(null);
-  const loginInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const historyDialog = useRef<HTMLDialogElement>(null);
   const panelOpen = panel !== null;
@@ -102,14 +108,29 @@ export default function App() {
   const momentSelected=state.messages.filter(item=>item.chatId===chat.id&&!item.kind&&momentIds?.includes(item.id));
   const deletePartner = ({ mira: 'Миры', sasha: 'Саши', danya: 'Дани' } as Record<string, string>)[chat.id] || 'собеседника';
 
-  useEffect(() => { try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { setStorageError(true); } }, [state]);
+  useEffect(() => {
+    setModal(null); setPanel(null); setContactOpen(false); setContactVisible(false);
+    setDrafts({}); setAttachment(null); setReplyTo(null); setEditing(null); setSelectedIds([]);
+    setMessageMenu(null); setForwardIds(null); setDeleteIds(null); setMomentIds(null); setCropFile(null);
+    setRemovedUndo(null); setAccountError(''); setMobileChat(false); setChatId('mira');
+    fileGeneration.current += 1; setPreparingFiles(false);
+    if (!account) { setStage('intro'); setDemoOwner(null); setState(initialState()); setAvatar(undefined); return; }
+    setState(loadDemo(account.id)); setDemoOwner(account.id); setStage('chat');
+    try { setAvatar(JSON.parse(localStorage.getItem(`aws.avatar.user.${account.id}`) || 'null') || undefined); }
+    catch { setAvatar(undefined); }
+  }, [account?.id]);
+  useEffect(() => { if (account) setName(account.name); }, [account?.name]);
+  useEffect(() => {
+    if (!account || demoOwner !== account.id) return;
+    try { localStorage.setItem(`${storageKey}.user.${account.id}`, JSON.stringify(state)); }
+    catch { setStorageError(true); }
+  }, [state, account?.id, demoOwner]);
   useEffect(() => {
     if (!panelOpen) return;
     const node = historyDialog.current!;
     node.showModal();
     return () => node.close();
   }, [panelOpen]);
-  useEffect(() => { if (stage !== 'login') return; const timer = setTimeout(() => loginInput.current?.focus(), 1050); return () => clearTimeout(timer); }, [stage]);
   useEffect(() => { if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; }, [chat.id, messages.length, stage, mobileChat, replyTo?.id, editing?.messageId]);
   useEffect(() => {
     const node = scroll.current;
@@ -148,12 +169,12 @@ export default function App() {
     setChatId(selected); setMobileChat(true); setMessageSearch(null); setEmojiOpen(false); setMenuOpen(false); setPanel(null);
     setState(previous => ({ ...previous, chats: previous.chats.map(item => item.id === selected ? { ...item, unread: 0 } : item) }));
   }
-  function signIn(event: FormEvent) {
-    event.preventDefault();
-    if (!(register?registration.username.trim():login.trim()) || !password) return;
-    const displayName=register?registration.name.trim():login.trim();
-    setName(displayName); try { localStorage.setItem('aws.name',displayName); if(register)localStorage.setItem('aws.registration',JSON.stringify(registration)); } catch { /* The demo remains usable without storage. */ }
-    setPassword(''); setStage('chat'); setMobileChat(false);
+  async function signOut() {
+    if (loggingOut) return;
+    setLoggingOut(true); setAccountError('');
+    try { await authApi.logout(); clearUser(); }
+    catch (error) { setAccountError(friendlyError(error)); }
+    finally { setLoggingOut(false); }
   }
   function sendMessage(event?: FormEvent) {
     event?.preventDefault();
@@ -251,8 +272,12 @@ export default function App() {
     }));
   }
   async function saveAvatar(image:Blob) {
-    const asset=await storeMedia(image,'photo','avatar.jpg');setAvatar(asset);
-    try{localStorage.setItem('aws.avatar',JSON.stringify(asset));}catch{setStorageError(true);}
+    if (!account) return;
+    const generation = fileGeneration.current;
+    const asset=await storeMedia(image,'photo','avatar.jpg');
+    if (generation !== fileGeneration.current) return;
+    setAvatar(asset);
+    try{localStorage.setItem(`aws.avatar.user.${account.id}`,JSON.stringify(asset));}catch{setStorageError(true);}
     setCropFile(null);
   }
   function performForward(ids:string[],target:string){setState(previous=>forwardMessages(previous,ids,target,name));setForwardIds(null);setSelectedIds([]);selectChat(target);}
@@ -268,26 +293,21 @@ export default function App() {
   useEffect(()=>{const node=composerArea.current;if(!node)return;const update=()=>{conversation.current?.style.setProperty('--composer-height',`${node.offsetHeight}px`);if(followBottom.current)requestAnimationFrame(()=>{if(scroll.current)scroll.current.scrollTop=scroll.current.scrollHeight;});};update();const observer=new ResizeObserver(update);observer.observe(node);return()=>observer.disconnect();},[stage,mobileChat]);
   const closeModal = () => setModal(null);
 
+  if (emailRoute) return <EmailConfirmation brand={<Brand />} onVerified={user => { if (account?.id === user.id) void refresh(); }} onDone={() => {
+    window.history.replaceState(null, '', '/'); setEmailRoute(false);
+    if (account) setStage('chat'); else { setStage('login'); void refresh(); }
+  }} />;
+
   return <>
-    {stage !== 'chat' ? <main className={`auth-screen ${stage === 'login' ? 'auth-open' : ''} ${register?'auth-register':''}`}>
-      <button className="brand-trigger" aria-label={stage === 'intro' ? 'Are we strangers? Открыть вход' : 'Are we strangers? Свернуть вход'} onClick={() => {loginInput.current?.blur();setStage(stage === 'intro' ? 'login' : 'intro');}}><Brand /></button>
-      <form className="auth-form" aria-hidden={stage === 'intro'} inert={stage === 'intro' ? true : undefined} onSubmit={signIn}>
-        {register ? <div className="registration-fields">
-          <label className="auth-field"><span>Номер телефона</span><input type="tel" autoComplete="tel" value={registration.phone} onChange={e=>setRegistration(p=>({...p,phone:e.target.value}))} placeholder="+7" required maxLength={24}/></label>
-          <label className="auth-field"><span>Почта</span><input type="email" autoComplete="email" value={registration.email} onChange={e=>setRegistration(p=>({...p,email:e.target.value}))} placeholder="you@example.com" required maxLength={120}/></label>
-          <label className="auth-field"><span>Имя</span><input autoComplete="given-name" value={registration.name} onChange={e=>setRegistration(p=>({...p,name:e.target.value}))} placeholder="Как тебя зовут" required maxLength={40}/></label>
-          <label className="auth-field"><span>Юзернейм</span><input autoComplete="username" value={registration.username} onChange={e=>setRegistration(p=>({...p,username:e.target.value}))} placeholder="username" pattern="[A-Za-z0-9_]{3,32}" title="От 3 до 32 латинских букв, цифр или подчёркиваний" required maxLength={32}/></label>
-        </div> : <label className="auth-field"><span>Логин</span><input ref={loginInput} value={login} onChange={event => setLogin(event.target.value)} autoComplete="username" placeholder="alex" required maxLength={40} /></label>}
-        <label className="auth-field"><span>Пароль</span><span className="password-input"><input type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} autoComplete={register ? 'new-password' : 'current-password'} placeholder="••••••••••" required /><IconButton label={showPassword ? 'Скрыть пароль' : 'Показать пароль'} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff /> : <Eye />}</IconButton></span></label>
-        {!register && <button type="button" className="text-button forgot" onClick={() => setModal('recovery')}>Забыли пароль?</button>}
-        <button className="primary auth-submit" type="submit">{register ? 'Создать аккаунт' : 'Войти'}</button>
-        <button type="button" className="text-button auth-switch" onClick={() => setRegister(value => !value)}>{register ? 'Уже есть аккаунт? Войти' : 'Создать аккаунт'}</button>
-        <p className="demo-note">{register?'Данные сохраняются только в этом браузере':'Прототип · любые логин и пароль'}</p>
-      </form>
+    {stage !== 'chat' || !account ? <main className={`auth-screen ${stage === 'login' ? 'auth-open' : ''} ${register?'auth-register':''}`}>
+      <button className="brand-trigger" disabled={checking || authBusy} aria-label={stage === 'intro' ? 'Are we strangers? Открыть вход' : 'Are we strangers? Свернуть вход'} onClick={() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); setStage(stage === 'intro' ? 'login' : 'intro'); }}><Brand /></button>
+      <AuthForm active={stage === 'login'} checking={checking} onAuthenticated={acceptUser} onRegisterMode={setRegister} onBusy={setAuthBusy} onRecovery={() => setModal('recovery')} />
+      {(checking || sessionError) && <div className="auth-session-status" role="status">{checking ? 'Проверяем вход…' : <>{sessionError}<button className="text-button" onClick={() => { void refresh(); }}>Проверить вход ещё раз</button></>}</div>}
     </main> : <main className={`messenger ${mobileChat ? 'show-conversation' : ''}`}>
       <aside className="sidebar">
-        <header className="sidebar-header"><button className="plain brand-home" onClick={() => { setContactOpen(false);setContactVisible(false);setStage('intro'); setPassword(''); }} aria-label="На начальный экран"><Brand compact pulse={pulse} /></button><IconButton label="Новый разговор" className="compose-new" onClick={() => setModal('new-chat')}><SquarePen /></IconButton></header>
+        <header className="sidebar-header"><button className="plain brand-home" onClick={() => { setContactOpen(false);setContactVisible(false);setPanel(null);setMobileChat(false); }} aria-label="К списку чатов"><Brand compact pulse={pulse} /></button><IconButton label="Новый разговор" className="compose-new" onClick={() => setModal('new-chat')}><SquarePen /></IconButton></header>
         <div className="search-wrap glass"><Search size={21} /><input aria-label="Поиск чатов" value={search} onChange={event => setSearch(event.target.value)} placeholder="Поиск" />{search && <IconButton label="Очистить поиск" onClick={() => setSearch('')}><X size={17} /></IconButton>}</div>
+        <p className="demo-conversations-note">Демонстрационные чаты · сообщения сохраняются в этом браузере</p>
         <div className="chat-list">
           {state.chats.filter(item => item.name.toLocaleLowerCase('ru').includes(search.toLocaleLowerCase('ru'))).map(item => {
             const last = state.messages.filter(message => message.chatId === item.id && !message.kind).at(-1);
@@ -338,12 +358,25 @@ export default function App() {
 
     {modal === 'pinned' && <Modal title="Закреплённые сообщения" onClose={closeModal}>{pinned.length === 0 && <p className="muted">Закреплённых сообщений пока нет.</p>}{pinned.map(item => <div className="pinned-entry" key={item.id}><button className="pinned-choice" onClick={() => { closeModal(); jumpToMessage(item.id); }}><Pin size={16} /><span>{messageSummary(item)}</span><time>{item.time}</time></button><IconButton label={`Открепить: ${messageSummary(item)}`} onClick={() => unpin(item.id)}><PinOff size={18} /></IconButton></div>)}</Modal>}
     {momentIds&&<Modal className="moment-dialog" title="Сохранить момент" onClose={()=>setMomentIds(null)}><p className="muted">Выбрано сообщений: {momentSelected.length}</p><div className="moment-picked">{momentSelected.map(message=><article className="moment-entry" key={message.id}><span className="eyebrow">{message.own?'Вы':chat.name} · {message.time}</span>{message.text&&<p>{message.text}</p>}{message.media?.map(asset=><MediaView key={asset.id} asset={asset}/>)}</article>)}</div><form className="stack-form" onSubmit={event=>{event.preventDefault();const next=saveMoment(state,chat.id,momentIds,reason);if(next===state)return;setState(next);setMomentIds(null);setSelectedIds([]);setPanel('moments');}}><label>Почему я это сохранил<textarea value={reason} onChange={event=>setReason(event.target.value)} placeholder="В этот момент мы стали немного ближе" required maxLength={1000}/></label><button className="primary" disabled={!momentSelected.length}>Сохранить момент · {momentSelected.length}</button></form></Modal>}
-    {modal === 'settings' && <Modal title="Настройки" onClose={closeModal}><p className="muted">Прототип с локальными данными. Для настоящей переписки подключим твой FastAPI.</p><button className="setting-row" onClick={notify}><Bell /><span>Проверить уведомление<small>Яркая вспышка звезды · пауза 2,5 секунды</small></span><ChevronRight /></button><button className="setting-row" onClick={() => { setStage('intro'); closeModal(); }}><LogOut /><span>Вернуться на экран входа</span><ChevronRight /></button>{removedUndo&&<button className="setting-row" onClick={()=>{setState(previous=>restoreMessages(previous,removedUndo));setRemovedUndo(null);}}><Reply/><span>Восстановить последние удалённые сообщения</span></button>}<button className="text-button reset-button" onClick={() => setModal('reset-confirm')}>Сбросить демонстрацию</button></Modal>}
+    {modal === 'settings' && account && <Modal title="Настройки" onClose={closeModal}>
+      <AccountSettings user={account} onUpdate={acceptUser} onExpired={clearUser} />
+      <p className="muted">Аккаунт подключён. Переписки, медиа и история знакомства пока работают локально.</p>
+      <button className="setting-row" onClick={notify}><Bell /><span>Проверить уведомление<small>Яркая вспышка звезды · пауза 2,5 секунды</small></span><ChevronRight /></button>
+      <button className="setting-row" disabled={loggingOut} onClick={() => { void signOut(); }}><LogOut /><span>{loggingOut ? 'Выходим…' : 'Выйти из аккаунта'}</span><ChevronRight /></button>
+      {accountError && <p className="auth-error" role="alert">{accountError}</p>}
+      {removedUndo && <button className="setting-row" onClick={() => { setState(previous => restoreMessages(previous, removedUndo)); setRemovedUndo(null); }}><Reply /><span>Восстановить последние удалённые сообщения</span></button>}
+      <button className="text-button reset-button" onClick={() => setModal('reset-confirm')}>Сбросить демонстрацию</button>
+    </Modal>}
     {modal === 'reset-confirm' && <Modal title="Сбросить демонстрацию?" onClose={closeModal}><p className="muted">Локальная переписка и сохранённые моменты вернутся к начальному состоянию.</p><div className="modal-actions"><button className="secondary" onClick={closeModal}>Отмена</button><button className="primary" onClick={() => { fileGeneration.current += 1; setPreparingFiles(false); setState(initialState()); setChatId('mira'); setDrafts({}); setAttachment(null); setPanel(null); setReplyTo(null); setEditing(null); setSelectedIds([]); setRemovedUndo(null);  closeModal(); }}>Сбросить</button></div></Modal>}
-    {modal === 'profile' && <Modal title="Профиль" onClose={closeModal}><Avatar asset={avatar} initial={name.slice(0,1).toLocaleUpperCase('ru')} className="profile-avatar"/><input type="file" ref={avatarInput} hidden accept="image/*" onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)setCropFile(file);}}/><div className="avatar-actions"><button className="secondary" onClick={()=>avatarInput.current?.click()}>{avatar?'Изменить аватар':'Добавить аватар'}</button>{avatar&&<button className="text-button" onClick={()=>{setAvatar(undefined);try{localStorage.removeItem('aws.avatar');}catch{/* in memory */}}}>Убрать</button>}</div><form className="stack-form" onSubmit={event => { event.preventDefault(); const value = String(new FormData(event.currentTarget).get('name') || '').trim(); if (!value) return; setName(value); try { localStorage.setItem('aws.name', value); } catch { /* In-memory profile still works. */ } closeModal(); }}><label>Как тебя зовут<input name="name" defaultValue={name} required maxLength={40} /></label><button className="primary">Сохранить</button></form></Modal>}
+    {modal === 'profile' && account && <Modal title="Профиль" onClose={closeModal}>
+      <Avatar asset={avatar} initial={name.slice(0,1).toLocaleUpperCase('ru')} className="profile-avatar" />
+      <input type="file" ref={avatarInput} hidden accept="image/*" onChange={event => { const file=event.target.files?.[0];event.target.value='';if(file)setCropFile(file); }} />
+      <div className="avatar-actions"><button className="secondary" onClick={() => avatarInput.current?.click()}>{avatar ? 'Изменить аватар' : 'Добавить аватар'}</button>{avatar && <button className="text-button" onClick={() => { setAvatar(undefined);try{localStorage.removeItem(`aws.avatar.user.${account.id}`);}catch{/* in memory */} }}>Убрать</button>}</div>
+      <div className="profile-account-data"><small>Аватар пока сохраняется только в этом браузере.</small><label>Имя<input value={account.name} readOnly /></label><label>Юзернейм<input value={account.username} readOnly /></label><small>Изменение данных профиля подключим следующим этапом.</small></div>
+    </Modal>}
     {modal === 'calls' && <Modal title="Звонки" onClose={closeModal}><div className="empty-state"><Phone /><p>Здесь будет голос</p><span>В этом прототипе проверяем вход и переписку. Звонки ещё не подключены.</span></div><button className="secondary full" onClick={closeModal}>Вернуться к разговору</button></Modal>}
     {modal === 'new-chat' && <Modal title="Начать разговор" onClose={closeModal}><p className="muted">В демо доступны три собеседника.</p>{state.chats.map(item => <button className="contact-choice" key={item.id} onClick={() => { selectChat(item.id); closeModal(); }}><span className="avatar">{item.initial}</span>{item.name}<ChevronRight /></button>)}</Modal>}
-    {modal === 'recovery' && <Modal title="Восстановление доступа" onClose={closeModal}><p className="muted">Сейчас это демонстрационный вход: подойдут любые логин и пароль. Восстановление подключим к твоему бэку.</p><button className="secondary full" onClick={closeModal}>Понятно</button></Modal>}
+    {modal === 'recovery' && <Modal title="Восстановление доступа" onClose={closeModal}><p className="muted">Восстановление пароля ещё не подключено. Для входа используй пароль, указанный при регистрации.</p><button className="secondary full" onClick={closeModal}>Понятно</button></Modal>}
     {cropFile&&<AvatarCropDialog file={cropFile} onClose={()=>setCropFile(null)} onSave={saveAvatar}/>}
     {storageError && <div className="storage-warning" role="status">Браузер не сохраняет данные. Изменения доступны до перезагрузки.</div>}
   </>;
