@@ -2,9 +2,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Response, Cookie
 from backend.app.schemas.auth import RegisterRequest, RegisterResponse, VerifyPhoneRequest, PhoneVerificationResponse, \
-    ResendPhoneVerificationRequest, LoginRequest
+    ResendPhoneVerificationRequest, LoginRequest, VerifyEmailRequest, EmailVerificationResponse
 from backend.app.services.auth import register_user, resend_phone_verification,login_user
 from backend.app.services.auth_sessions import revoke_auth_session
+from backend.app.services.email_verification import verify_email_token, request_email_verification, \
+    send_email_verification
 from backend.database.session import SessionDep
 from backend.app.core.telegram_config import telegram_settings
 from backend.app.schemas.user import UserResponse
@@ -63,3 +65,14 @@ def get_me_session(user:CurrentUser):
 def logout_session(session:SessionDep,response:Response,session_token:Annotated[str|None,Cookie()]=None):
     revoke_auth_session(session,session_token)
     response.delete_cookie(key="session_token", path="/")
+
+@auth_router.post('/request-email-verification',response_model=EmailVerificationResponse,summary="Отправка письма потверждения почты")
+def send_verification_email(session:SessionDep, user:CurrentUser):
+    new_email_verif=request_email_verification(session=session,user=user)
+    return EmailVerificationResponse(expires_at=new_email_verif.expires_at)
+
+@auth_router.post('/verify-email', response_model=UserResponse, summary='Потверждение почты')
+def verify_email(session:SessionDep,data:VerifyEmailRequest):
+    return verify_email_token(session=session,token=data.token)
+
+

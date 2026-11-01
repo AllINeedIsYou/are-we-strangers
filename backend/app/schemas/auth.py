@@ -70,3 +70,9 @@ class LoginRequest(BaseModel):
         if not value:
             raise ValueError('Поле не может состоять только из пробелов')
         return value
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+class EmailVerificationResponse(BaseModel):
+    expires_at: datetime

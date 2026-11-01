@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Mapped,mapped_column
-from sqlalchemy import String, DateTime, func, ForeignKey, BigInteger
+from sqlalchemy import String, DateTime, func, ForeignKey
 from backend.database.base import Base
-from datetime import datetime,timezone
+from datetime import datetime
 
 class AuthSession(Base):
     __tablename__ = 'auth_session'
