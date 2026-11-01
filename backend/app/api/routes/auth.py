@@ -1,7 +1,10 @@
-from fastapi import APIRouter, HTTPException,Response
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Response, Cookie
 from backend.app.schemas.auth import RegisterRequest, RegisterResponse, VerifyPhoneRequest, PhoneVerificationResponse, \
     ResendPhoneVerificationRequest, LoginRequest
 from backend.app.services.auth import register_user, resend_phone_verification,login_user
+from backend.app.services.auth_sessions import revoke_auth_session
 from backend.database.session import SessionDep
 from backend.app.core.telegram_config import telegram_settings
 from backend.app.schemas.user import UserResponse
@@ -56,3 +59,7 @@ def login(session:SessionDep,data:LoginRequest,respone:Response):
 def get_me_session(user:CurrentUser):
     return user
 
+@auth_router.post('/logout',status_code=204)
+def logout_session(session:SessionDep,response:Response,session_token:Annotated[str|None,Cookie()]=None):
+    revoke_auth_session(session,session_token)
+    response.delete_cookie(key="session_token", path="/")

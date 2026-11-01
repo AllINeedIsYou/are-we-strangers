@@ -1,3 +1,4 @@
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from backend.app.core.security import generate_token,hash_token
 from backend.app.models.users import Users
@@ -31,3 +32,19 @@ def get_user_by_session(session:Session, token:str|None):
         raise HTTPException(status_code=401,detail='Пользователь или сессия не найдена')
     auth,user=query
     return user
+
+def revoke_auth_session(session:Session,token:str|None):
+    if token is None:
+        return
+    token_hash=hash_token(token)
+    auth=session.query(AuthSession).filter(AuthSession.token_hash==token_hash, AuthSession.revoked_at.is_(None)).first()
+    if auth is None:
+        return
+    try:
+        now=datetime.now(timezone.utc)
+        auth.revoked_at=now
+        session.commit()
+
+    except SQLAlchemyError:
+        session.rollback()
+        raise
