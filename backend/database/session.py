@@ -14,4 +14,6 @@ def get_session():
     with SessionLocal() as session:
         yield session
 
+
 SessionDep=Annotated[Session, Depends(get_session)]
+
