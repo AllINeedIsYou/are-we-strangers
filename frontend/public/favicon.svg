@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="background">
+      <stop stop-color="#39000a"/>
+      <stop offset="1" stop-color="#080809"/>
+    </radialGradient>
+    <linearGradient id="star" x1="0" y1="0" x2="0.25" y2="1">
+      <stop stop-color="#fff4f2"/>
+      <stop offset="0.3" stop-color="#ff7181"/>
+      <stop offset="0.55" stop-color="#e60028"/>
+      <stop offset="1" stop-color="#970018"/>
+    </linearGradient>
+    <filter id="glow" x="-100%" y="-50%" width="300%" height="200%">
+      <feGaussianBlur stdDeviation="2.5"/>
+    </filter>
+    <path id="shape" d="M32 5C31 27 30.5 30 17 32C30.5 34 31 37 32 59C33 37 33.5 34 47 32C33.5 30 33 27 32 5Z"/>
+  </defs>
+  <rect x="0.5" y="0.5" width="63" height="63" rx="15" fill="url(#background)" stroke="#5b1420"/>
+  <use href="#shape" fill="#e60028" opacity="0.6" filter="url(#glow)"/>
+  <use href="#shape" fill="url(#star)"/>
+</svg>
