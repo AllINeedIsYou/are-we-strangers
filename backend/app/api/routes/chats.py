@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from backend.database.session import SessionDep
 from backend.app.api.dependencies import CurrentUser
 from backend.app.schemas.chats import ChatResponse,CreateChatRequest
-from backend.app.services.chats import get_or_create_chat,get_user_chats
+from backend.app.services.chats import get_or_create_chat,get_user_chats,get_unread_counts
 from backend.app.schemas.messages import ReadMessagesResponse,ReadMessagesRequest
 from backend.app.services.messages import mark_messages_read
 from backend.app.core.connections import connection_manager
@@ -13,21 +13,26 @@ chats_router=APIRouter(prefix='/chats',tags=['Chats'])
 @chats_router.post('',response_model=ChatResponse)
 def get_chat(session:SessionDep,user:CurrentUser,data:CreateChatRequest):
     chat, partner=get_or_create_chat(session=session,user=user,partner_id=data.partner_id)
+    count=get_unread_counts(session,user,[chat.id])
     return ChatResponse(
         id=chat.id,
         created_at=chat.created_at,
-        partner=partner
+        partner=partner,
+        unread_count=count.get(chat.id,0)
     )
 
 @chats_router.get('',response_model=list[ChatResponse])
 def get_all_chats(session:SessionDep,user:CurrentUser):
     chatandpartner=get_user_chats(session=session,user=user)
     response=[]
+    chats_ids=[chat.id for chat,partner in chatandpartner]
+    counts=get_unread_counts(session,user,chats_ids)
     for chat,partner in chatandpartner:
         response.append(ChatResponse(
             id=chat.id,
             created_at=chat.created_at,
-            partner=partner
+            partner=partner,
+            unread_count=counts.get(chat.id,0)
         ))
     return response
 

@@ -1,8 +1,8 @@
 from psycopg.errors import UniqueViolation
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
-from backend.app.models import Chats,Users
+from sqlalchemy import or_, func
+from backend.app.models import Chats, Users, Messages
 from fastapi import HTTPException
 from datetime import datetime,timezone
 
@@ -69,3 +69,13 @@ def get_chat_for_user(session:Session,user:Users,chat_id:int):
     if chat is None:
         raise HTTPException(status_code=404,detail="Чат не найден")
     return chat
+
+def get_unread_counts(session:Session,user:Users,list_chats:list[int]):
+
+    if not list_chats:
+        return {}
+
+    rows=session.query(Messages.chat_id,func.count(Messages.id)).filter(Messages.chat_id.in_(list_chats),
+                                                                        Messages.sender_id!=user.id,
+                                                                        Messages.is_read.is_(False)).group_by(Messages.chat_id).all()
+    return dict(rows)

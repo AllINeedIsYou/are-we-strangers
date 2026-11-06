@@ -10,3 +10,5 @@ class ChatResponse(BaseModel):
     id:int
     created_at:datetime
     partner:PublicUserResponse
+    unread_count:int=Field(gt=-1)
+
