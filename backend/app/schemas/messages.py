@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from pydantic import BaseModel, Field,field_validator,ConfigDict
 from datetime import datetime
 
@@ -20,3 +22,14 @@ class MessageResponse(BaseModel):
     sender_id:int
     text:str
     created_at:datetime
+    is_read:bool
+
+
+class ReadMessagesRequest(BaseModel):
+    message_ids:list[Annotated[int,Field(gt=0)]]=Field(min_length=1,max_length=100)
+
+
+class ReadMessagesResponse(BaseModel):
+    reader_id:int
+    chat_id:int
+    message_ids:list[Annotated[int,Field(gt=0)]]=Field(max_length=100)

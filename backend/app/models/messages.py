@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Mapped,mapped_column
-from sqlalchemy import DateTime, func, ForeignKey,Text
+from sqlalchemy import DateTime, func, ForeignKey,Text,false
 from backend.database.base import Base
 from datetime import datetime
 
@@ -16,3 +16,5 @@ class Messages(Base):
     text:Mapped[str]=mapped_column(Text)
 
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+    is_read:Mapped[bool]=mapped_column(server_default=false())

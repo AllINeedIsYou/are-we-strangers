@@ -1,9 +1,9 @@
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from backend.app.models import Users,Messages
-from backend.app.schemas.messages import CreateMessageRequest
+from backend.app.schemas.messages import CreateMessageRequest,ReadMessagesRequest,ReadMessagesResponse
 from backend.app.services.chats import get_chat_for_user
-
+from fastapi import HTTPException
 def create_message(session:Session,user:Users,chat_id:int,data:CreateMessageRequest):
     chat=get_chat_for_user(session, user, chat_id)
     try:
@@ -33,3 +33,25 @@ def get_chat_messages(session:Session,user:Users,chat_id:int,limit:int=50,before
     messages.reverse()
 
     return messages
+
+def mark_messages_read(session:Session,user:Users,chat_id:int,data:ReadMessagesRequest):
+    chat=get_chat_for_user(session, user, chat_id)
+
+    list_messages_id=data.message_ids
+    changed_messages_id=[]
+    try:
+        messages = session.query(Messages).filter(Messages.chat_id == chat.id,
+                                                  Messages.sender_id != user.id,
+                                                  Messages.is_read.is_(False),
+                                                  Messages.id.in_(list_messages_id)).with_for_update().all()
+        for message in messages:
+            message.is_read=True
+            changed_messages_id.append(message.id)
+
+        session.commit()
+
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+
+    return chat,changed_messages_id
