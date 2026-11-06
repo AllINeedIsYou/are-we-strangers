@@ -55,15 +55,15 @@ function errorMessage(payload: unknown, status: number): string {
   return 'Не удалось выполнить запрос. Попробуй ещё раз';
 }
 
-async function request<T>(path: string, body?: unknown, options: { method?: string; signal?: AbortSignal } = {}): Promise<T> {
+export async function apiRequest<T>(path: string, body?: unknown, options: { method?: string; signal?: AbortSignal } = {}): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`/api/auth${path}`, {
+    response = await fetch(path, {
       method: options.method || (body === undefined ? 'GET' : 'POST'),
       credentials: 'include',
       headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: options.signal || AbortSignal.timeout(30_000),
+      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     });
   } catch (error) {
     if (options.signal?.aborted) throw error;
@@ -76,6 +76,10 @@ async function request<T>(path: string, body?: unknown, options: { method?: stri
   try { payload = await response.json(); } catch { throw new ApiError(response.status, 'Сервер вернул неожиданный ответ. Попробуй ещё раз позже'); }
   if (!response.ok) throw new ApiError(response.status, errorMessage(payload, response.status));
   return payload as T;
+}
+
+function request<T>(path: string, body?: unknown, options: { method?: string; signal?: AbortSignal } = {}): Promise<T> {
+  return apiRequest<T>(`/api/auth${path}`, body, options);
 }
 
 async function accountRequest(path: string, body?: unknown, signal?: AbortSignal): Promise<Account> {

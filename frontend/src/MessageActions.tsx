@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import { Bookmark, CheckCheck, ChevronRight, CircleCheck, Search, Copy, Forward, Paperclip, Pin, PinOff, Reply, SquarePen, Trash2 } from 'lucide-react';
+import { Bookmark, Check, CheckCheck, ChevronRight, CircleCheck, Search, Copy, Forward, Paperclip, Pin, PinOff, Reply, SquarePen, Trash2 } from 'lucide-react';
 import { messageSummary, type Chat, type Message } from './domain';
 import MediaView from './MediaView';
 import { SearchText } from './ConversationSearch';
@@ -48,12 +48,13 @@ export function MessageBubble({ message, selected, selecting, active, searchQuer
       {message.media?.length ? <div className={`message-media ${allPhotos&&message.media!.length>1?'photo-album':''}`}>{message.media.map(asset => <MediaView key={asset.id} asset={asset} />)}</div> : null}
       {message.attachment && <span className="message-attachment"><Paperclip size={17} />{message.attachment}<small>Локальный пример · не загружен</small></span>}
       {message.text && <span className="message-body"><SearchText text={message.text} query={searchQuery}/></span>}
-      <span className="message-meta">{message.pinned && <Pin size={11} aria-label="Закреплено" />}{message.edited && <span>изм.</span>}<time>{message.time}</time>{message.own && <CheckCheck size={16} aria-label="Прочитано в демо" />}</span>
+      <span className="message-meta">{message.pinned && <Pin size={11} aria-label="Закреплено" />}{message.edited && <span>изм.</span>}<time>{message.time}</time>{message.own && (message.serverId ? <Check size={16} aria-label="Сохранено на сервере" /> : <CheckCheck size={16} aria-label="Прочитано в демо" />)}</span>
     </div>
   </div>;
 }
 
-export function MessageContextMenu({forwardTargets,onForwardTo, target, onClose, onReply, onCopy, onEdit, onPin, onForward, onSelect, onMoment, onDelete }: {
+export function MessageContextMenu({live = false, forwardTargets,onForwardTo, target, onClose, onReply, onCopy, onEdit, onPin, onForward, onSelect, onMoment, onDelete }: {
+  live?: boolean;
   forwardTargets:Chat[];onForwardTo:(chatId:string)=>void;
   target: MessageMenuTarget; onClose: () => void; onReply: () => void; onCopy: () => void; onEdit: () => void;
   onPin: () => void; onForward: () => void; onSelect: () => void; onMoment: () => void; onDelete: () => void;
@@ -72,14 +73,15 @@ export function MessageContextMenu({forwardTargets,onForwardTo, target, onClose,
     return () => element.close();
   }, [target]);
   function item(label: string, icon: ReactNode, action: () => void, danger = false) {
-    return <button role="menuitem" className={danger ? 'danger' : ''} onClick={() => { onClose(); action(); }}>{icon}<span>{label}</span>{label === 'Переслать' && <ChevronRight className="context-chevron" />}</button>;
+    const disabled = live && !['Копировать текст', 'Выбрать'].includes(label);
+    return <button role="menuitem" disabled={disabled} title={disabled ? 'Пока доступно в демо' : undefined} className={danger ? 'danger' : ''} onClick={() => { onClose(); action(); }}>{icon}<span>{label}</span>{label === 'Переслать' && <ChevronRight className="context-chevron" />}</button>;
   }
   return <dialog ref={dialog} className="message-context glass" aria-label="Действия с сообщением" onCancel={onClose} onContextMenu={event => event.preventDefault()}
     onClick={event => { if (event.target === dialog.current) onClose(); }} onKeyDown={event => {
       if(event.key==='Escape'&&forwardOpen){event.preventDefault();event.stopPropagation();setForwardOpen(false);return;}
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
-      const buttons = [...dialog.current!.querySelectorAll<HTMLButtonElement>('button[role=menuitem]')];
+      const buttons = [...dialog.current!.querySelectorAll<HTMLButtonElement>('button[role=menuitem]:not(:disabled)')];
       const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
       buttons[next]?.focus();
@@ -89,7 +91,7 @@ export function MessageContextMenu({forwardTargets,onForwardTo, target, onClose,
       <div className="context-divider" />
       {target.message.own && item('Изменить', <SquarePen />, onEdit)}
       {item(target.message.pinned ? 'Открепить' : 'Закрепить', target.message.pinned ? <PinOff /> : <Pin />, onPin)}
-      <button role="menuitem" data-forward-trigger aria-expanded={forwardOpen} onClick={()=>{if(innerWidth>760)setForwardOpen(v=>!v);else{onClose();onForward();}}}><Forward/><span>Переслать</span><ChevronRight className="context-chevron"/></button>
+      <button role="menuitem" disabled={live} title={live ? 'Пока доступно в демо' : undefined} data-forward-trigger aria-expanded={forwardOpen} onClick={()=>{if(innerWidth>760)setForwardOpen(v=>!v);else{onClose();onForward();}}}><Forward/><span>Переслать</span><ChevronRight className="context-chevron"/></button>
       {item('Выбрать', <CircleCheck />, onSelect)}
       {item('Добавить момент', <Bookmark />, onMoment)}
       <div className="context-divider" />

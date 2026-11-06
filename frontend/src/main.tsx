@@ -14,3 +14,4 @@ import './contact.css';
 
 import './search.css';
 import './auth.css';
+import './messenger.css';

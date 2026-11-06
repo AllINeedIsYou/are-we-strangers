@@ -37,7 +37,7 @@ export default function ContactProfile({open,chat,state,onClose,onStory,onCall,o
   const links=Array.from(new Set(messages.flatMap(message=>message.text.match(/https?:\/\/[^\s<>]+/g)||[]))).map(url=>url.replace(/[.,!?;]+$/,''));
   const momentCount=state.moments.filter(moment=>moment.chatId===chat.id).length;
   const chapterCount=state.chapters.filter(chapter=>chapter.chatId===chat.id).length;
-  const status=chat.online?'В сети':'был(а) недавно';
+  const status=chat.serverId ? chat.username || 'Собеседник' : chat.online?'В сети':'был(а) недавно';
   function toggleMute(){setMuted(value=>{const next=!value;try{localStorage.setItem(`aws.muted.${chat.id}`,String(next));}catch{/* Session preference still works. */}return next;});}
   return <section className={`contact-profile ${open?'profile-open':''} ${compact?'profile-compact':''}`} aria-label={`Профиль: ${chat.name}`} inert={!open}>
     <div ref={scroller} className="profile-scroll" onScroll={event=>setCompact(event.currentTarget.scrollTop>130)}>

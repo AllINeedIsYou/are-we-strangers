@@ -1,8 +1,8 @@
 export type ReplySnapshot = { id: string; text: string; author: string };
 export type MediaKind = 'photo' | 'voice' | 'circle' | 'video' | 'file';
 export type MediaAsset = { id: string; name: string; mime: string; size: number; kind: MediaKind; duration?: number };
-export type Message = { id: string; chatId: string; text: string; own: boolean; time: string; attachment?: string; media?: MediaAsset[]; kind?: 'chapter'; replyTo?: ReplySnapshot; forwardedFrom?: string; edited?: boolean; pinned?: boolean };
-export type Chat = { id: string; name: string; initial: string; online: boolean; unread: number; avatar?: MediaAsset; username?: string; phone?: string; birthday?: string; bio?: string };
+export type Message = { id: string; chatId: string; text: string; own: boolean; time: string; serverId?: number; createdAt?: string; attachment?: string; media?: MediaAsset[]; kind?: 'chapter'; replyTo?: ReplySnapshot; forwardedFrom?: string; edited?: boolean; pinned?: boolean };
+export type Chat = { id: string; name: string; initial: string; online: boolean; unread: number; serverId?: number; partnerId?: number; createdAt?: string; avatar?: MediaAsset; username?: string; phone?: string; birthday?: string; bio?: string };
 export type Moment = { id: string; chatId: string; message: string; messages?: Message[]; reason: string; response?: string };
 export type FutureQuestion = { id: string; chatId: string; text: string; date: string; answer: string; otherAnswer?: string };
 export type Chapter = { id: string; chatId: string; title: string; status: 'pending' | 'accepted' };
