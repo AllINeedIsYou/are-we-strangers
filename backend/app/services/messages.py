@@ -1,7 +1,7 @@
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from backend.app.models import Users,Messages
-from backend.app.schemas.messages import CreateMessageRequest,ReadMessagesRequest,ReadMessagesResponse
+from backend.app.schemas.messages import CreateMessageRequest,ReadMessagesRequest,EditMessageRequest
 from backend.app.services.chats import get_chat_for_user
 from fastapi import HTTPException
 def create_message(session:Session,user:Users,chat_id:int,data:CreateMessageRequest):
@@ -55,3 +55,30 @@ def mark_messages_read(session:Session,user:Users,chat_id:int,data:ReadMessagesR
         raise
 
     return chat,changed_messages_id
+
+def edit_message(session:Session,user:Users,chat_id:int,message_id:int,data:EditMessageRequest):
+    chat=get_chat_for_user(session, user, chat_id)
+    try:
+        message=session.query(Messages).filter(Messages.chat_id==chat_id,Messages.id==message_id).with_for_update().first()
+        if not message:
+            raise HTTPException(status_code=404,detail='Сообщение не найдено')
+        if message.sender_id!=user.id:
+            raise HTTPException(status_code=403, detail='Редактировать сообщение может только автор')
+
+
+        changed=False
+        if message.text!=data.text:
+            message.text=data.text
+            message.is_edited=True
+            changed=True
+
+            session.commit()
+
+        else:
+            return chat,message,changed
+
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+
+    return chat,message,changed

@@ -18,3 +18,5 @@ class Messages(Base):
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
 
     is_read:Mapped[bool]=mapped_column(server_default=false())
+
+    is_edited:Mapped[bool]=mapped_column(server_default=false())

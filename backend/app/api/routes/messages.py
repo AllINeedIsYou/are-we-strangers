@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from backend.app.api.dependencies import CurrentUser
-from backend.app.schemas.messages import MessageResponse, CreateMessageRequest
+from backend.app.schemas.messages import MessageResponse, CreateMessageRequest,EditMessageRequest
 from backend.app.services.chats import get_chat_for_user
-from backend.app.services.messages import create_message,get_chat_messages
+from backend.app.services.messages import create_message,get_chat_messages,edit_message
 from backend.database.session import SessionDep
 from backend.app.core.connections import connection_manager
 from anyio import from_thread
@@ -42,3 +42,22 @@ def send_message(session:SessionDep,user:CurrentUser,chat_id:int,data:CreateMess
 def get_messages(session:SessionDep,chat_id:int,user:CurrentUser,before_id:int|None=None):
     messages=get_chat_messages(session=session,user=user,before_id=before_id,chat_id=chat_id)
     return messages
+
+@message_router.patch('/{message_id}',response_model=MessageResponse)
+def message_edit(session:SessionDep,user:CurrentUser,chat_id:int,message_id:int,data:EditMessageRequest):
+    chat,message,changed=edit_message(session, user, chat_id, message_id, data)
+    if changed:
+        event={
+            'type':'message.updated',
+            'message': MessageResponse.model_validate(message).model_dump(mode='json')
+        }
+
+        from_thread.run(
+            connection_manager.send_to_user,chat.first_user_id,event
+        )
+
+        from_thread.run(
+            connection_manager.send_to_user,chat.second_user_id,event
+        )
+
+    return message
