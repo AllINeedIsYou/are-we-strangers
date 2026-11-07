@@ -54,7 +54,8 @@ def get_or_create_chat(session:Session,user:Users,partner_id:int):
     return chat, partner
 
 def get_user_chats(session:Session,user:Users):
-    chats=session.query(Chats).filter(or_(Chats.first_user_id==user.id,Chats.second_user_id==user.id)).order_by(Chats.created_at.desc(),Chats.id.desc()).all()
+    chats=session.query(Chats).outerjoin(Messages,Messages.chat_id==Chats.id).filter(or_(Chats.first_user_id==user.id,
+                                                                                         Chats.second_user_id==user.id)).group_by(Chats.id).order_by(func.coalesce(func.max(Messages.created_at),Chats.created_at).desc(),Chats.id.desc()).all()
     chatandpartner=[]
     for chat in chats:
         partner_id=(chat.second_user_id if chat.first_user_id==user.id else chat.first_user_id )
