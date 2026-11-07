@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from backend.app.api.dependencies import CurrentUser
-from backend.app.schemas.messages import MessageResponse, CreateMessageRequest,EditMessageRequest
+from backend.app.schemas.messages import MessageResponse, CreateMessageRequest,EditMessageRequest,DeleteMessagesRequest,DeleteMessagesResponse
 from backend.app.services.chats import get_chat_for_user
-from backend.app.services.messages import create_message,get_chat_messages,edit_message
+from backend.app.services.messages import create_message,get_chat_messages,edit_message,delete_messages
 from backend.database.session import SessionDep
 from backend.app.core.connections import connection_manager
 from anyio import from_thread
@@ -61,3 +61,33 @@ def message_edit(session:SessionDep,user:CurrentUser,chat_id:int,message_id:int,
         )
 
     return message
+
+@message_router.delete('/delete',response_model=DeleteMessagesResponse)
+def messages_delete(session:SessionDep,user:CurrentUser,chat_id:int,data:DeleteMessagesRequest):
+    chat, changed_message_ids=delete_messages(session, user, chat_id, data)
+    response=DeleteMessagesResponse(
+        chat_id=chat.id,
+        actor_id=user.id,
+        scope=data.scope,
+        message_ids=changed_message_ids
+    )
+
+    if changed_message_ids!=[]:
+        event={
+            "type": "messages.deleted",
+            **response.model_dump(mode='json')
+        }
+        partner_id=chat.first_user_id if chat.second_user_id==user.id else chat.second_user_id
+        if data.scope=='self':
+            from_thread.run(
+                connection_manager.send_to_user, user.id, event
+            )
+
+        elif data.scope=='everyone':
+            from_thread.run(
+                connection_manager.send_to_user, user.id, event
+            )
+            from_thread.run(
+                connection_manager.send_to_user, partner_id, event
+            )
+    return response

@@ -1,7 +1,8 @@
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from backend.app.models import Users,Messages
-from backend.app.schemas.messages import CreateMessageRequest,ReadMessagesRequest,EditMessageRequest
+from backend.app.schemas.messages import CreateMessageRequest, ReadMessagesRequest, EditMessageRequest, \
+    DeleteMessagesRequest
 from backend.app.services.chats import get_chat_for_user
 from fastapi import HTTPException
 def create_message(session:Session,user:Users,chat_id:int,data:CreateMessageRequest):
@@ -82,3 +83,34 @@ def edit_message(session:Session,user:Users,chat_id:int,message_id:int,data:Edit
         raise
 
     return chat,message,changed
+
+def delete_messages(session:Session,user:Users,chat_id:int,data:DeleteMessagesRequest):
+    chat=get_chat_for_user(session, user, chat_id)
+    try:
+
+        messages=session.query(Messages).filter(Messages.chat_id==chat_id,Messages.id.in_(data.message_ids)).order_by(Messages.id).with_for_update().all()
+        changed_message_ids=[]
+        for message in messages:
+            if data.scope=='self':
+
+                if message.sender_id==user.id:
+                    if not message.deleted_for_sender:
+                        message.deleted_for_sender=True
+                        changed_message_ids.append(message.id)
+                else:
+                    if not message.deleted_for_recipient:
+                        message.deleted_for_recipient = True
+                        changed_message_ids.append(message.id)
+
+            elif data.scope == 'everyone':
+                if not (message.deleted_for_recipient and message.deleted_for_sender):
+                    message.deleted_for_sender = True
+                    message.deleted_for_recipient = True
+                    changed_message_ids.append(message.id)
+
+        session.commit()
+
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+    return chat, changed_message_ids

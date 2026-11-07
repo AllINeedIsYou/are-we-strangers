@@ -20,3 +20,7 @@ class Messages(Base):
     is_read:Mapped[bool]=mapped_column(server_default=false())
 
     is_edited:Mapped[bool]=mapped_column(server_default=false())
+
+    deleted_for_sender:Mapped[bool]=mapped_column(server_default=false())
+
+    deleted_for_recipient: Mapped[bool] = mapped_column(server_default=false())

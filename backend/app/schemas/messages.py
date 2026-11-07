@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated,Literal
 
 from pydantic import BaseModel, Field,field_validator,ConfigDict
 from datetime import datetime
@@ -45,3 +45,13 @@ class EditMessageRequest(BaseModel):
             raise ValueError('Сообщение не может быть пустым')
         else:
             return value
+
+class DeleteMessagesRequest(BaseModel):
+    message_ids:list[Annotated[int,Field(gt=0)]]=Field(min_length=1,max_length=100)
+    scope:Literal["self", "everyone"]
+
+class DeleteMessagesResponse(BaseModel):
+    actor_id:int
+    chat_id:int
+    message_ids: list[Annotated[int, Field(gt=0)]] = Field(max_length=100)
+    scope:Literal["self", "everyone"]
