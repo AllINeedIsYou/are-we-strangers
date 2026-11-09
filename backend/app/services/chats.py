@@ -1,10 +1,11 @@
 from psycopg.errors import UniqueViolation
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func,and_
 from backend.app.models import Chats, Users, Messages
 from fastapi import HTTPException
 from datetime import datetime,timezone
+from backend.app.services.message_visibility import message_visible_to
 
 
 def get_or_create_chat(session:Session,user:Users,partner_id:int):
@@ -54,7 +55,7 @@ def get_or_create_chat(session:Session,user:Users,partner_id:int):
     return chat, partner
 
 def get_user_chats(session:Session,user:Users):
-    chats=session.query(Chats).outerjoin(Messages,Messages.chat_id==Chats.id).filter(or_(Chats.first_user_id==user.id,
+    chats=session.query(Chats).outerjoin(Messages,and_(Messages.chat_id==Chats.id,message_visible_to(user.id))).filter(or_(Chats.first_user_id==user.id,
                                                                                          Chats.second_user_id==user.id)).group_by(Chats.id).order_by(func.coalesce(func.max(Messages.created_at),Chats.created_at).desc(),Chats.id.desc()).all()
     chatandpartner=[]
     for chat in chats:
@@ -78,5 +79,6 @@ def get_unread_counts(session:Session,user:Users,list_chats:list[int]):
 
     rows=session.query(Messages.chat_id,func.count(Messages.id)).filter(Messages.chat_id.in_(list_chats),
                                                                         Messages.sender_id!=user.id,
+                                                                        message_visible_to(user.id),
                                                                         Messages.is_read.is_(False)).group_by(Messages.chat_id).all()
     return dict(rows)

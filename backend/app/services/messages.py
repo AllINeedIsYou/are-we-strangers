@@ -5,6 +5,8 @@ from backend.app.schemas.messages import CreateMessageRequest, ReadMessagesReque
     DeleteMessagesRequest
 from backend.app.services.chats import get_chat_for_user
 from fastapi import HTTPException
+from backend.app.services.message_visibility import message_visible_to
+
 def create_message(session:Session,user:Users,chat_id:int,data:CreateMessageRequest):
     chat=get_chat_for_user(session, user, chat_id)
     try:
@@ -25,7 +27,7 @@ def create_message(session:Session,user:Users,chat_id:int,data:CreateMessageRequ
 
 def get_chat_messages(session:Session,user:Users,chat_id:int,limit:int=50,before_id: int | None = None):
     chat = get_chat_for_user(session, user, chat_id)
-    messages=session.query(Messages).filter(Messages.chat_id==chat.id)
+    messages=session.query(Messages).filter(Messages.chat_id==chat.id,message_visible_to(user.id))
     if before_id is not None:
         messages=messages.filter(Messages.id<before_id)
 
@@ -42,6 +44,7 @@ def mark_messages_read(session:Session,user:Users,chat_id:int,data:ReadMessagesR
     changed_messages_id=[]
     try:
         messages = session.query(Messages).filter(Messages.chat_id == chat.id,
+                                                  message_visible_to(user.id),
                                                   Messages.sender_id != user.id,
                                                   Messages.is_read.is_(False),
                                                   Messages.id.in_(list_messages_id)).with_for_update().all()
@@ -60,7 +63,7 @@ def mark_messages_read(session:Session,user:Users,chat_id:int,data:ReadMessagesR
 def edit_message(session:Session,user:Users,chat_id:int,message_id:int,data:EditMessageRequest):
     chat=get_chat_for_user(session, user, chat_id)
     try:
-        message=session.query(Messages).filter(Messages.chat_id==chat_id,Messages.id==message_id).with_for_update().first()
+        message=session.query(Messages).filter(Messages.chat_id==chat_id,Messages.id==message_id,message_visible_to(user.id)).with_for_update().first()
         if not message:
             raise HTTPException(status_code=404,detail='Сообщение не найдено')
         if message.sender_id!=user.id:

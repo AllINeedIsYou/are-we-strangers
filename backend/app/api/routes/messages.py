@@ -53,12 +53,13 @@ def message_edit(session:SessionDep,user:CurrentUser,chat_id:int,message_id:int,
         }
 
         from_thread.run(
-            connection_manager.send_to_user,chat.first_user_id,event
+            connection_manager.send_to_user,user.id,event
         )
-
-        from_thread.run(
-            connection_manager.send_to_user,chat.second_user_id,event
-        )
+        if message.deleted_for_recipient == False:
+            partner_id = chat.first_user_id if chat.second_user_id == user.id else chat.second_user_id
+            from_thread.run(
+                connection_manager.send_to_user, partner_id, event
+            )
 
     return message
 

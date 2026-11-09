@@ -48,7 +48,7 @@ export function MessageBubble({ message, selected, selecting, active, searchQuer
       {message.media?.length ? <div className={`message-media ${allPhotos&&message.media!.length>1?'photo-album':''}`}>{message.media.map(asset => <MediaView key={asset.id} asset={asset} />)}</div> : null}
       {message.attachment && <span className="message-attachment"><Paperclip size={17} />{message.attachment}<small>Локальный пример · не загружен</small></span>}
       {message.text && <span className="message-body"><SearchText text={message.text} query={searchQuery}/></span>}
-      <span className="message-meta">{message.pinned && <Pin size={11} aria-label="Закреплено" />}{message.edited && <span>изм.</span>}<time>{message.time}</time>{message.own && (message.serverId ? <Check size={16} aria-label="Сохранено на сервере" /> : <CheckCheck size={16} aria-label="Прочитано в демо" />)}</span>
+      <span className="message-meta">{message.pinned && <Pin size={11} aria-label="Закреплено" />}{message.edited && <span>изм.</span>}<time>{message.time}</time>{message.own && (message.serverId ? message.read ? <CheckCheck size={16} aria-label="Прочитано" /> : <Check size={16} aria-label="Сохранено на сервере" /> : <CheckCheck size={16} aria-label="Прочитано в демо" />)}</span>
     </div>
   </div>;
 }
@@ -73,7 +73,7 @@ export function MessageContextMenu({live = false, forwardTargets,onForwardTo, ta
     return () => element.close();
   }, [target]);
   function item(label: string, icon: ReactNode, action: () => void, danger = false) {
-    const disabled = live && !['Копировать текст', 'Выбрать'].includes(label);
+    const disabled = live && !['Копировать текст', 'Выбрать', 'Изменить', 'Удалить'].includes(label);
     return <button role="menuitem" disabled={disabled} title={disabled ? 'Пока доступно в демо' : undefined} className={danger ? 'danger' : ''} onClick={() => { onClose(); action(); }}>{icon}<span>{label}</span>{label === 'Переслать' && <ChevronRight className="context-chevron" />}</button>;
   }
   return <dialog ref={dialog} className="message-context glass" aria-label="Действия с сообщением" onCancel={onClose} onContextMenu={event => event.preventDefault()}

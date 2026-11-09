@@ -18,6 +18,7 @@ import EmailConfirmation from './EmailConfirmation';
 import useAuthSession from './useAuthSession';
 import { authApi, friendlyError } from './authApi';
 import useMessenger from './useMessenger';
+import useReadTracking from './useReadTracking';
 import useUserSearch from './useUserSearch';
 import type { PublicUser } from './messengerApi';
 import DevAccountSwitch from './DevAccountSwitch';
@@ -111,48 +112,64 @@ export default function App() {
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const followBottom = useRef(true);
+  const [wide, setWide] = useState(() => window.innerWidth > 760);
   const scrollIntent=useRef(0);
   const composer = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const historyDialog = useRef<HTMLDialogElement>(null);
   const panelOpen = panel !== null;
-  const live = useMessenger(account?.id ?? null, clearUser, key => { if (!demoMode) pulseNotification(key); });
+  const live = useMessenger(account?.id ?? null, clearUser, key => { if (!demoMode) pulseNotification(key); }, async (ids, signal) => {
+    if (!demoMode) await animateMessageDeletion(ids, signal);
+  });
   const state = demoMode ? demoState : live.state;
   function setState(next: SetStateAction<DemoState>) { if (demoMode) setDemoState(next); }
   const results = useUserSearch(search, account?.id ?? null, !!account && !demoMode, clearUser);
   const newResults = useUserSearch(newSearch, account?.id ?? null, !!account && !demoMode && modal === 'new-chat', clearUser);
   const chat = state.chats.find(item => item.id === chatId) || state.chats[0] || emptyChat;
   const messages = state.messages.filter(item => item.chatId === chat.id);
+  const activeChatRef = useRef(chat.id); activeChatRef.current = chat.id;
   const pinned = state.messages.filter(item => item.chatId === chat.id && item.pinned && !item.kind);
   const draft = drafts[chat.id] || '';
   const currentAttachment = attachment?.chatId === chat.id ? attachment : null;
   const momentSelected=state.messages.filter(item=>item.chatId===chat.id&&!item.kind&&momentIds?.includes(item.id));
-  const deletePartner = ({ mira: 'Миры', sasha: 'Саши', danya: 'Дани' } as Record<string, string>)[chat.id] || 'собеседника';
   const history = live.history[chat.id];
   const sending = !demoMode && !!live.sending[chat.id];
   const olderAnchor = useRef<{ chatId: string; height: number; top: number } | null>(null);
   const draftVersions = useRef<Record<string, number>>({});
   const ownerRef = useRef(account?.id); ownerRef.current = account?.id;
   const viewRevision = useRef(0);
+  const readEntry = useReadTracking({
+    viewKey: !demoMode && stage === 'chat' && (wide || mobileChat) && chat.id ? `${account?.id}:${chat.id}:${wide || mobileChat}` : '',
+    chatId: chat.id, store: live.store, messages, history, scroll, conversation, followBottom,
+    obscured: !!(contactVisible || modal || panel || messageMenu || deleteIds || menuOpen || emojiOpen || messageSearch !== null),
+  });
   const activity = new Map(state.chats.map(item => [item.id, Date.parse(item.createdAt || '') || 0]));
   for (const message of state.messages) if (message.createdAt) activity.set(message.chatId, Math.max(activity.get(message.chatId) || 0, Date.parse(message.createdAt)));
   const globalSearch = !demoMode && usesGlobalSearch(search);
   const existingPartners = new Set(state.chats.map(item => item.partnerId));
   const globalUsers = results.users.filter(user => !existingPartners.has(user.id));
-  const visibleChats = findOwnChats(state.chats, search, results.users)
-    .sort((a, b) => (activity.get(b.id) || 0) - (activity.get(a.id) || 0));
+  const visibleChats = findOwnChats(state.chats, search, results.users);
+  if (demoMode) visibleChats.sort((a, b) => (activity.get(b.id) || 0) - (activity.get(a.id) || 0));
+  useEffect(() => { const resize = () => setWide(window.innerWidth > 760); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize); }, []);
   useEffect(() => { setOpenError(''); }, [search, newSearch]);
 
   useEffect(() => {
     if (!state.chats.some(item => item.id === chatId)) setChatId(state.chats[0]?.id || '');
   }, [state.chats, chatId]);
-  useEffect(() => { live.store?.selectChat(!demoMode && (window.innerWidth > 760 || mobileChat) ? chat.id : ''); }, [live.store, demoMode, chat.id, mobileChat]);
+  useLayoutEffect(() => { live.store?.selectChat(!demoMode && (wide || mobileChat) ? chat.id : ''); }, [live.store, demoMode, chat.id, mobileChat, wide]);
+  useEffect(() => {
+    if (demoMode) return;
+    const existing = new Set(messages.map(message => message.id));
+    setSelectedIds(previous => previous.every(id => existing.has(id)) ? previous : previous.filter(id => existing.has(id)));
+    if (editing && !existing.has(editing.messageId)) { cancelEdit(); setInlineError('Это сообщение удалено.'); }
+    if (messageMenu && !existing.has(messageMenu.message.id)) setMessageMenu(null);
+  }, [live.state.messages, demoMode, chat.id]);
 
   useEffect(() => {
     setModal(null); setPanel(null); setContactOpen(false); setContactVisible(false);
     setDrafts({}); setAttachment(null); setReplyTo(null); setEditing(null); setSelectedIds([]);
     setMessageMenu(null); setForwardIds(null); setDeleteIds(null); setMomentIds(null); setCropFile(null);
-    setRemovedUndo(null); setAccountError(''); setMobileChat(false); setChatId(''); setDemoMode(false); setSearch(''); setNewSearch(''); setOpenError(''); setInlineError('');
+    setRemovedUndo(null); setDeleting(false); setAccountError(''); setMobileChat(false); setChatId(''); setDemoMode(false); setSearch(''); setNewSearch(''); setOpenError(''); setInlineError('');
     draftVersions.current = {}; olderAnchor.current = null;
     viewRevision.current++;
     fileGeneration.current += 1; setPreparingFiles(false);
@@ -180,12 +197,12 @@ export default function App() {
     if (anchor?.chatId === chat.id) {
       node.scrollTop = anchor.top + node.scrollHeight - anchor.height;
       olderAnchor.current = null;
-    } else if (followBottom.current) node.scrollTop = node.scrollHeight;
+    } else if (followBottom.current && (demoMode || readEntry.ready)) node.scrollTop = node.scrollHeight;
   }, [chat.id, messages.length, stage, mobileChat, replyTo?.id, editing?.messageId]);
   useEffect(() => {
     const node = scroll.current;
     if (!node || stage !== 'chat') return;
-    followBottom.current = true;
+    followBottom.current = demoMode;
     function onScroll() { if (node && performance.now()-scrollIntent.current<800 && scrollIntent.current>0) followBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80; }
     function intent(){scrollIntent.current=performance.now();}
     node.addEventListener('wheel',intent,{passive:true});node.addEventListener('touchmove',intent,{passive:true});
@@ -216,7 +233,7 @@ export default function App() {
   }
   function selectChat(selected: string) {
     setContactOpen(false);setContactVisible(false); cancelEdit(); setReplyTo(null); setSelectedIds([]); setMessageMenu(null); setAttachment(null); fileGeneration.current += 1; setPreparingFiles(false);
-    followBottom.current = true; olderAnchor.current = null; setInlineError('');
+    followBottom.current = demoMode; olderAnchor.current = null; setInlineError('');
     setChatId(selected); setMobileChat(true); setMessageSearch(null); setEmojiOpen(false); setMenuOpen(false); setPanel(null);
     if (!demoMode) live.store?.selectChat(selected);
     setState(previous => ({ ...previous, chats: previous.chats.map(item => item.id === selected ? { ...item, unread: 0 } : item) }));
@@ -267,14 +284,19 @@ export default function App() {
       if (!draft.trim() || !live.store || !chat.serverId) return;
       if (draft.length > 4096) { setInlineError('В одном сообщении может быть до 4096 символов.'); return; }
       const key = chat.id, text = draft, version = draftVersions.current[key] || 0, owner = account?.id;
+      const edit = editing, revision = viewRevision.current;
       setInlineError('');
       try {
-        const sent = await live.store.sendText(key, text);
-        if (!sent || ownerRef.current !== owner) return;
-        setDrafts(previous => previous[key] === text && (draftVersions.current[key] || 0) === version ? { ...previous, [key]: '' } : previous);
-        setEmojiOpen(false); composer.current?.focus();
+        const sent = edit ? await live.store.editText(key, edit.messageId, text) : await live.store.sendText(key, text);
+        if (!sent || ownerRef.current !== owner || viewRevision.current !== revision) return;
+        setDrafts(previous => previous[key] === text && (draftVersions.current[key] || 0) === version ? { ...previous, [key]: edit?.originalDraft || '' } : previous);
+        if (edit) setEditing(previous => previous?.messageId === edit.messageId ? null : previous);
+        if (activeChatRef.current === key) {
+          if (!edit) { followBottom.current = true; requestAnimationFrame(() => { if (scroll.current && activeChatRef.current === key) scroll.current.scrollTop = scroll.current.scrollHeight; }); }
+          setEmojiOpen(false); composer.current?.focus();
+        }
       } catch (error) {
-        if (ownerRef.current === owner) setInlineError(`${friendlyError(error)}. Текст сохранён в поле ввода. Перед повторной отправкой проверь переписку.`);
+        if (ownerRef.current === owner && viewRevision.current === revision && activeChatRef.current === key) setInlineError(`${friendlyError(error)}. Текст сохранён в поле ввода. Перед повторной отправкой проверь переписку.`);
       }
       return;
     }
@@ -300,8 +322,8 @@ export default function App() {
     setEditing(null);
   }
   function beginEdit(message: Message) {
-    if (!requireDemo()) return;
     if (!message.own) return;
+    setInlineError('');
     setEditing({ messageId: message.id, originalDraft: editing?.originalDraft ?? draft });
     setDrafts(previous => ({ ...previous, [chat.id]: message.text }));
     setReplyTo(null); setAttachment(null); fileGeneration.current += 1; setPreparingFiles(false); requestAnimationFrame(() => composer.current?.focus());
@@ -318,7 +340,7 @@ export default function App() {
     catch { setInlineError('Браузер не разрешил копирование. Попробуй ещё раз.'); }
   }
   function toggleSelected(messageId: string) {
-    setSelectedIds(previous => previous.includes(messageId) ? previous.filter(item => item !== messageId) : [...previous, messageId]);
+    setSelectedIds(previous => previous.includes(messageId) ? previous.filter(item => item !== messageId) : !demoMode && previous.length >= 100 ? previous : [...previous, messageId]);
   }
   useEffect(()=>{setSearchActiveId(null);if(messageSearch!==null)followBottom.current=false;},[messageSearch,chat.id]);
   function navigateSearch(messageId:string){
@@ -338,7 +360,7 @@ export default function App() {
       highlightTimer.current = setTimeout(() => setHighlightId(null), 1600);
     });
   }
-  function requestDelete(ids: string[]) { if (!requireDemo()) return; setDeleteEveryone(true); setDeleteIds(ids); }
+  function requestDelete(ids: string[]) { setInlineError(''); setDeleteEveryone(true); setDeleteIds(ids); }
   function openMoment(ids: string[]) { if (!requireDemo()) return; setMomentIds(ids); setReason(''); }
   function unpin(messageId: string) {
     setState(previous => ({ ...previous, messages: previous.messages.map(item => item.id === messageId ? { ...item, pinned: false } : item) }));
@@ -386,13 +408,23 @@ export default function App() {
   async function confirmDelete(){
     if(!deleteIds||deleting)return;
     const ids=[...deleteIds],scope=deleteEveryone?'everyone':'self',deletionId=id();
+    if (!demoMode) {
+      const owner = account?.id, revision = viewRevision.current, key = chat.id;
+      setDeleting(true); setDeleteIds(null); setSelectedIds([]);
+      try {
+        await live.store?.deleteMessages(key, ids, scope);
+      } catch (error) {
+        if (ownerRef.current === owner && viewRevision.current === revision && activeChatRef.current === key) setInlineError(friendlyError(error));
+      } finally { if (ownerRef.current === owner) setDeleting(false); }
+      return;
+    }
     const undo=removeMessages(state,ids,scope,deletionId).removed;
     setDeleting(true);setDeleteIds(null);setSelectedIds([]);
     await animateMessageDeletion(ids);
     setState(previous=>removeMessages(previous,ids,scope,deletionId).state);setRemovedUndo(undo);
     if(editing&&ids.includes(editing.messageId))cancelEdit();setDeleting(false);
   }
-  useEffect(()=>{const node=composerArea.current;if(!node)return;const update=()=>{conversation.current?.style.setProperty('--composer-height',`${node.offsetHeight}px`);if(followBottom.current)requestAnimationFrame(()=>{if(scroll.current)scroll.current.scrollTop=scroll.current.scrollHeight;});};update();const observer=new ResizeObserver(update);observer.observe(node);return()=>observer.disconnect();},[stage,mobileChat]);
+  useLayoutEffect(()=>{const node=composerArea.current;if(!node)return;const update=()=>{conversation.current?.style.setProperty('--composer-height',`${node.offsetHeight}px`);if(followBottom.current)requestAnimationFrame(()=>{if(scroll.current)scroll.current.scrollTop=scroll.current.scrollHeight;});};update();const observer=new ResizeObserver(update);observer.observe(node);return()=>observer.disconnect();},[stage,mobileChat,chat.id,demoMode]);
   const closeModal = () => setModal(null);
 
   if (emailRoute) return <EmailConfirmation brand={<Brand />} onVerified={user => { if (account?.id === user.id) void refresh(); }} onDone={() => {
@@ -429,18 +461,19 @@ export default function App() {
         {messageSearch !== null && <><ConversationSearch query={messageSearch} onQuery={setMessageSearch} messages={messages} chat={chat} ownName={name} ownAvatar={avatar} onNavigate={navigateSearch} onClose={closeSearch}/>{!demoMode && <span className="search-scope-label">Поиск по загруженным сообщениям</span>}</>}
 
         {pinned.length > 0 && <div className="pinned-bar"><button onClick={() => jumpToMessage(pinned.at(-1)!.id)}><Pin size={17} /><span><strong>Закреплённое сообщение{pinned.length > 1 ? ` · ${pinned.length}` : ''}</strong><span>{messageSummary(pinned.at(-1)!)}</span></span></button><IconButton label="Все закреплённые сообщения" onClick={() => setModal('pinned')}><MoreHorizontal /></IconButton><IconButton label="Открепить последнее сообщение" onClick={() => unpin(pinned.at(-1)!.id)}><X size={16} /></IconButton></div>}
-        <div className="messages-scroll" ref={scroll}><div className="messages-inner">
+        <div className={`messages-scroll ${!demoMode && !readEntry.ready ? 'preparing-entry' : ''}`} ref={scroll}><div className="messages-inner">
           {!demoMode && (history?.hasOlder || history?.error) && <button className="load-history glass" disabled={history.loading} onClick={() => { void loadOlder(); }}>{history.loading ? 'Загружаем…' : history.error ? 'Повторить загрузку истории' : 'Более ранние сообщения'}</button>}
           {!demoMode && history?.error && <p className="history-error" role="alert">{history.error}</p>}
           {demoMode && <div className="date-separator"><span>Сегодня</span></div>}
           {messages.map((message, index) => <Fragment key={message.id}>
             {message.createdAt && (!messages[index - 1]?.createdAt || new Date(messages[index - 1].createdAt!).toDateString() !== new Date(message.createdAt).toDateString()) && <div className="date-separator"><span>{dayLabel(message.createdAt)}</span></div>}
+            {!demoMode && readEntry.boundary === message.id && <div className="unread-divider" data-unread-boundary><span>Новые сообщения</span></div>}
             {message.kind === 'chapter' ? <div className="chapter-divider"><span>Новая глава · {message.text}</span></div> : <MessageBubble message={message} selected={selectedIds.includes(message.id)} selecting={selectedIds.length > 0} active={messageMenu?.message.id === message.id || highlightId === message.id} searchQuery={messageSearch||''} searchActive={searchActiveId===message.id} onMenu={setMessageMenu} onSelect={toggleSelected} onJump={jumpToMessage} />}
           </Fragment>)}
           {messages.length === 0 && <div className="conversation-empty"><Star ambient /><p>{!demoMode && (history?.loading || live.loading) ? 'Загружаем переписку…' : messageSearch ? 'Сообщения не найдены' : 'С чего начнём разговор?'}</p></div>}
         </div></div>
         <div ref={composerArea} className={`composer-area ${recordingActive?'is-recording':''}`}>
-          {selectedIds.length>0?<div className="selection-dock" aria-label="Действия с выбранными сообщениями"><IconButton label="Удалить выбранные сообщения" disabled={!demoMode} className="glass round" onClick={()=>requestDelete([...selectedIds])}><Trash2/></IconButton><span className="selection-count">Выбрано: {selectedIds.length}</span><div className="selection-dock-actions"><IconButton label="Копировать выбранные сообщения" onClick={()=>void copyMessages(selectedIds)}><Copy/></IconButton><IconButton label="Сохранить выбранные сообщения в момент" disabled={!demoMode} onClick={()=>openMoment([...selectedIds])}><Bookmark/></IconButton><IconButton label="Переслать выбранные сообщения" disabled={!demoMode} className="glass round" onClick={()=>setForwardIds([...selectedIds])}><Forward/></IconButton></div></div>:<>
+          {selectedIds.length>0?<div className="selection-dock" aria-label="Действия с выбранными сообщениями"><IconButton label="Удалить выбранные сообщения" disabled={deleting} className="glass round" onClick={()=>requestDelete([...selectedIds])}><Trash2/></IconButton><span className="selection-count">Выбрано: {selectedIds.length}{!demoMode && selectedIds.length === 100 ? ' · максимум 100' : ''}</span><div className="selection-dock-actions"><IconButton label="Копировать выбранные сообщения" onClick={()=>void copyMessages(selectedIds)}><Copy/></IconButton><IconButton label="Сохранить выбранные сообщения в момент" disabled={!demoMode} onClick={()=>openMoment([...selectedIds])}><Bookmark/></IconButton><IconButton label="Переслать выбранные сообщения" disabled={!demoMode} className="glass round" onClick={()=>setForwardIds([...selectedIds])}><Forward/></IconButton></div></div>:<>
 
           {(replyTo || editing) && <div className="composer-context">{editing ? <SquarePen size={19} /> : <Reply size={19} />}<span><strong>{editing ? 'Редактирование сообщения' : replyTo!.author}</strong><span>{editing ? state.messages.find(item => item.id === editing.messageId)?.text : replyTo!.text}</span></span><IconButton label={editing ? 'Отменить редактирование' : 'Отменить ответ'} onClick={() => { cancelEdit(); setReplyTo(null); }}><X size={18} /></IconButton></div>}
           {currentAttachment && <div className="pending-media">{currentAttachment.items.map(asset => <div className="pending-item" key={asset.id}><Paperclip size={14} /><span>{asset.name}</span><IconButton label={`Убрать файл: ${asset.name}`} onClick={() => setAttachment(previous => previous ? { ...previous, items: previous.items.filter(item => item.id !== asset.id) } : null)}><X size={14} /></IconButton></div>)}</div>}
@@ -468,7 +501,7 @@ export default function App() {
     </main>}
     {messageMenu && <MessageContextMenu live={!demoMode} forwardTargets={state.chats} onForwardTo={target=>performForward(selectedIds.includes(messageMenu.message.id)?selectedIds:[messageMenu.message.id],target)} target={messageMenu} onClose={() => setMessageMenu(null)} onReply={() => beginReply(messageMenu.message)} onCopy={() => { void copyMessages([messageMenu.message.id]); }} onEdit={() => beginEdit(messageMenu.message)} onPin={() => { if (!requireDemo()) return; const message = messageMenu.message; setState(previous => ({ ...previous, messages: previous.messages.map(item => item.id === message.id ? { ...item, pinned: !item.pinned } : item) })); }} onForward={() => { if (requireDemo()) setForwardIds([messageMenu.message.id]); }} onSelect={() => setSelectedIds([messageMenu.message.id])} onMoment={() => openMoment(selectedIds.includes(messageMenu.message.id)?selectedIds:[messageMenu.message.id])} onDelete={() => requestDelete([messageMenu.message.id])} />}
     {forwardIds&&<ForwardDialog chats={state.chats} count={forwardIds.length} onClose={()=>setForwardIds(null)} onForward={target=>performForward(forwardIds,target)}/>}
-    {deleteIds && <Modal className="delete-dialog" title={deleteIds.length > 1 ? `Удалить выбранные сообщения (${deleteIds.length})?` : 'Удалить выбранное сообщение?'} onClose={() => setDeleteIds(null)}><label className="delete-scope"><input type="checkbox" checked={deleteEveryone} onChange={event => setDeleteEveryone(event.target.checked)} /><span>Удалить у меня и у {deletePartner}</span></label><div className="modal-actions"><button className="secondary glass" onClick={() => setDeleteIds(null)}>Отмена</button><button className="primary" disabled={deleting} onClick={()=>{void confirmDelete();}}>Удалить</button></div></Modal>}
+    {deleteIds && <Modal className="delete-dialog" title={deleteIds.length > 1 ? `Удалить выбранные сообщения (${deleteIds.length})?` : 'Удалить выбранное сообщение?'} onClose={() => { if (!deleting) setDeleteIds(null); }}>{!demoMode && inlineError && <p className="history-error" role="alert">{inlineError}</p>}<label className="delete-scope"><input type="checkbox" disabled={deleting} checked={deleteEveryone} onChange={event => setDeleteEveryone(event.target.checked)} /><span>Удалить у всех</span></label><div className="modal-actions"><button className="secondary glass" disabled={deleting} onClick={() => setDeleteIds(null)}>Отмена</button><button className="primary" disabled={deleting} onClick={()=>{void confirmDelete();}}>{deleting ? 'Удаляем…' : 'Удалить'}</button></div></Modal>}
 
     {modal === 'pinned' && <Modal title="Закреплённые сообщения" onClose={closeModal}>{pinned.length === 0 && <p className="muted">Закреплённых сообщений пока нет.</p>}{pinned.map(item => <div className="pinned-entry" key={item.id}><button className="pinned-choice" onClick={() => { closeModal(); jumpToMessage(item.id); }}><Pin size={16} /><span>{messageSummary(item)}</span><time>{item.time}</time></button><IconButton label={`Открепить: ${messageSummary(item)}`} onClick={() => unpin(item.id)}><PinOff size={18} /></IconButton></div>)}</Modal>}
     {momentIds&&<Modal className="moment-dialog" title="Сохранить момент" onClose={()=>setMomentIds(null)}><p className="muted">Выбрано сообщений: {momentSelected.length}</p><div className="moment-picked">{momentSelected.map(message=><article className="moment-entry" key={message.id}><span className="eyebrow">{message.own?'Вы':chat.name} · {message.time}</span>{message.text&&<p>{message.text}</p>}{message.media?.map(asset=><MediaView key={asset.id} asset={asset}/>)}</article>)}</div><form className="stack-form" onSubmit={event=>{event.preventDefault();const next=saveMoment(state,chat.id,momentIds,reason);if(next===state)return;setState(next);setMomentIds(null);setSelectedIds([]);setPanel('moments');}}><label>Почему я это сохранил<textarea value={reason} onChange={event=>setReason(event.target.value)} placeholder="В этот момент мы стали немного ближе" required maxLength={1000}/></label><button className="primary" disabled={!momentSelected.length}>Сохранить момент · {momentSelected.length}</button></form></Modal>}
