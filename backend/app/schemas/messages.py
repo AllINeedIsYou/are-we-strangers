@@ -6,6 +6,8 @@ from datetime import datetime
 
 class CreateMessageRequest(BaseModel):
     text:str=Field(min_length=1, max_length=4096)
+    reply_to_id:int|None=Field(gt=0,default=None)
+
     @field_validator('text')
     @classmethod
     def text_strip_valid(cls,value):
@@ -24,6 +26,7 @@ class MessageResponse(BaseModel):
     created_at:datetime
     is_read:bool
     is_edited:bool
+    reply_to_id:int|None
 
 
 class ReadMessagesRequest(BaseModel):

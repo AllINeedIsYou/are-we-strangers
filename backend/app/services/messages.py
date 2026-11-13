@@ -9,11 +9,18 @@ from backend.app.services.message_visibility import message_visible_to
 
 def create_message(session:Session,user:Users,chat_id:int,data:CreateMessageRequest):
     chat=get_chat_for_user(session, user, chat_id)
+
+    if data.reply_to_id is not None:
+        message_reply=session.query(Messages).filter(Messages.chat_id==chat_id,Messages.id==data.reply_to_id,message_visible_to(user.id)).first()
+        if (message_reply is None):
+           raise HTTPException(status_code=404, detail="Сообщение не найдено")
+
     try:
         new_message=Messages(
             chat_id=chat_id,
             sender_id=user.id,
-            text=data.text
+            text=data.text,
+            reply_to_id=data.reply_to_id
         )
         session.add(new_message)
         session.commit()

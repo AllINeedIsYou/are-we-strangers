@@ -5,7 +5,7 @@ import { messengerApi, type ServerMessage } from '../src/messengerApi.ts';
 import { MessengerStore } from '../src/messengerStore.ts';
 
 const chat = { id: 7, created_at: '2026-11-04T00:00:00Z', partner: { id: 8, name: 'Мира', username: '@Mira' }, unread_count: 0 };
-const message = (id: number, sender_id = 8): ServerMessage => ({ id, chat_id: 7, sender_id, text: `text ${id}`, is_read: false, is_edited: false, created_at: '2026-11-04T00:00:00Z' });
+const message = (id: number, sender_id = 8): ServerMessage => ({ id, chat_id: 7, sender_id, text: `text ${id}`, is_read: false, is_edited: false, reply_to_id: null, created_at: '2026-11-04T00:00:00Z' });
 const tick = () => new Promise(resolve => setImmediate(resolve));
 class Socket {
   readyState = 1;
@@ -34,15 +34,22 @@ test('messenger API uses cookie auth and exact search/chat/message routes', asyn
     assert.equal(options.credentials, 'include');
     calls.push([url, options.method!, options.body ? JSON.parse(String(options.body)) : undefined]);
     if (url.startsWith('/api/user/search')) return Response.json([chat.partner]);
-    if (url.includes('/messages')) return Response.json(options.method === 'POST' ? message(12, 3) : [message(11)]);
+    if (url.includes('/messages')) {
+      if (options.method !== 'POST') return Response.json([message(11)]);
+      const { reply_to_id } = JSON.parse(String(options.body));
+      return Response.json({ ...message(12, 3), reply_to_id: reply_to_id ?? null });
+    }
     return Response.json(options.method === 'POST' ? chat : [chat]);
   });
   await messengerApi.search('  @Mi  '); await messengerApi.chats(); await messengerApi.createChat(8);
   await messengerApi.messages(7, 12); await messengerApi.send(7, '  Keep\nformat  ');
+  const reply = await messengerApi.send(7, 'Ответ', undefined, 11);
+  assert.equal(reply.reply_to_id, 11);
   assert.deepEqual(calls, [
     ['/api/user/search?q=%40Mi', 'GET', undefined], ['/api/chats', 'GET', undefined],
     ['/api/chats', 'POST', { partner_id: 8 }], ['/api/chats/7/messages?before_id=12', 'GET', undefined],
     ['/api/chats/7/messages', 'POST', { text: '  Keep\nformat  ' }],
+    ['/api/chats/7/messages', 'POST', { text: 'Ответ', reply_to_id: 11 }],
   ]);
 });
 

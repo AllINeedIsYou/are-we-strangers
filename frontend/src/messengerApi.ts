@@ -3,7 +3,7 @@ import type { Chat, Message } from './domain.ts';
 
 export type PublicUser = { id: number; name: string; username: string };
 export type ServerChat = { id: number; created_at: string; partner: PublicUser; unread_count: number };
-export type ServerMessage = { id: number; chat_id: number; sender_id: number; text: string; created_at: string; is_read: boolean; is_edited: boolean };
+export type ServerMessage = { id: number; chat_id: number; sender_id: number; text: string; created_at: string; is_read: boolean; is_edited: boolean; reply_to_id: number | null };
 export type ReadReceipt = { reader_id: number; chat_id: number; message_ids: number[] };
 export type DeletedMessages = { actor_id: number; chat_id: number; message_ids: number[]; scope: 'self' | 'everyone' };
 export const chatKey = (id: number) => `server-${id}`;
@@ -16,7 +16,8 @@ export function isPublicUser(value: unknown): value is PublicUser {
 export function isServerMessage(value: unknown): value is ServerMessage {
   const message = value as ServerMessage | null;
   return !!message && positive(message.id) && positive(message.chat_id) && positive(message.sender_id)
-    && typeof message.text === 'string' && date(message.created_at) && typeof message.is_read === 'boolean' && typeof message.is_edited === 'boolean';
+    && typeof message.text === 'string' && date(message.created_at) && typeof message.is_read === 'boolean' && typeof message.is_edited === 'boolean'
+    && (message.reply_to_id === null || positive(message.reply_to_id));
 }
 const ids = (value: unknown): value is number[] => Array.isArray(value) && value.every(positive);
 export function isReadReceipt(value: unknown): value is ReadReceipt {
@@ -49,8 +50,9 @@ export const messengerApi = {
     if (messages.some(message => message.chat_id !== chatId)) throw new ApiError(0, 'Сервер вернул сообщения другого чата');
     return messages;
   },
-  send: async (chatId: number, text: string, signal?: AbortSignal) => {
-    const message = checked(await apiRequest(`/api/chats/${chatId}/messages`, { text }, { signal }), isServerMessage);
+  send: async (chatId: number, text: string, signal?: AbortSignal, replyToId?: number) => {
+    const body = replyToId === undefined ? { text } : { text, reply_to_id: replyToId };
+    const message = checked(await apiRequest(`/api/chats/${chatId}/messages`, body, { signal }), isServerMessage);
     if (message.chat_id !== chatId) throw new ApiError(0, 'Сервер вернул сообщение другого чата');
     return message;
   },
@@ -77,6 +79,7 @@ export function toChat(chat: ServerChat): Chat {
 export function toMessage(message: ServerMessage, ownId: number): Message {
   return { id: `message-${message.id}`, serverId: message.id, chatId: chatKey(message.chat_id), createdAt: message.created_at,
     own: message.sender_id === ownId, text: message.text, read: message.is_read, edited: message.is_edited,
+    replyToId: message.reply_to_id === null ? undefined : `message-${message.reply_to_id}`,
     time: new Intl.DateTimeFormat('ru', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at)) };
 }
 export function mergeMessages(previous: Message[], incoming: Message[]): Message[] {

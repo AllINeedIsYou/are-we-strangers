@@ -127,6 +127,11 @@ export default function App() {
   const newResults = useUserSearch(newSearch, account?.id ?? null, !!account && !demoMode && modal === 'new-chat', clearUser);
   const chat = state.chats.find(item => item.id === chatId) || state.chats[0] || emptyChat;
   const messages = state.messages.filter(item => item.chatId === chat.id);
+  const messagesById = new Map(messages.map(message => [message.id, message]));
+  const replySource = replyTo ? messagesById.get(replyTo.id) : undefined;
+  const replyPreview = !demoMode && replyTo
+    ? replySource ? quoteFor(replySource) : { ...replyTo, text: 'Исходное сообщение недоступно', author: 'Ответ на сообщение' }
+    : replyTo;
   const activeChatRef = useRef(chat.id); activeChatRef.current = chat.id;
   const pinned = state.messages.filter(item => item.chatId === chat.id && item.pinned && !item.kind);
   const draft = drafts[chat.id] || '';
@@ -285,12 +290,18 @@ export default function App() {
       if (draft.length > 4096) { setInlineError('В одном сообщении может быть до 4096 символов.'); return; }
       const key = chat.id, text = draft, version = draftVersions.current[key] || 0, owner = account?.id;
       const edit = editing, revision = viewRevision.current;
+      const reply = replyTo;
+      if (!edit && reply && !replySource?.serverId) {
+        setInlineError('Исходное сообщение недоступно. Отмени цитату, чтобы отправить текст.');
+        return;
+      }
       setInlineError('');
       try {
-        const sent = edit ? await live.store.editText(key, edit.messageId, text) : await live.store.sendText(key, text);
+        const sent = edit ? await live.store.editText(key, edit.messageId, text) : await live.store.sendText(key, text, replySource?.serverId);
         if (!sent || ownerRef.current !== owner || viewRevision.current !== revision) return;
         setDrafts(previous => previous[key] === text && (draftVersions.current[key] || 0) === version ? { ...previous, [key]: edit?.originalDraft || '' } : previous);
         if (edit) setEditing(previous => previous?.messageId === edit.messageId ? null : previous);
+        else if (reply) setReplyTo(previous => previous === reply ? null : previous);
         if (activeChatRef.current === key) {
           if (!edit) { followBottom.current = true; requestAnimationFrame(() => { if (scroll.current && activeChatRef.current === key) scroll.current.scrollTop = scroll.current.scrollHeight; }); }
           setEmojiOpen(false); composer.current?.focus();
@@ -328,10 +339,15 @@ export default function App() {
     setDrafts(previous => ({ ...previous, [chat.id]: message.text }));
     setReplyTo(null); setAttachment(null); fileGeneration.current += 1; setPreparingFiles(false); requestAnimationFrame(() => composer.current?.focus());
   }
+  function quoteFor(message: Message): ReplySnapshot {
+    return { id: message.id, text: messageSummary(message), author: message.own ? name : chat.name };
+  }
   function beginReply(message: Message) {
-    if (!requireDemo()) return;
+    const source = messagesById.get(message.id);
+    if (!source || (!demoMode && !source.serverId)) return;
     cancelEdit();
-    setReplyTo({ id: message.id, text: messageSummary(message), author: message.own ? name : chat.name });
+    setInlineError('');
+    setReplyTo(quoteFor(source));
     requestAnimationFrame(() => composer.current?.focus());
   }
   async function copyMessages(messageIds: string[]) {
@@ -351,8 +367,10 @@ export default function App() {
   function closeSearch(){setMessageSearch(null);setSearchActiveId(null);}
   function jumpToMessage(messageId: string) {
     setMessageSearch(null);
+    followBottom.current = false;
+    scrollIntent.current = 0;
     requestAnimationFrame(() => {
-      const element = [...document.querySelectorAll<HTMLElement>('[data-message-id]')].find(item => item.dataset.messageId === messageId);
+      const element = scroll.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
       if (!element) { setInlineError('Исходного сообщения больше нет в этой переписке'); return; }
       element.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
       setHighlightId(messageId);
@@ -465,17 +483,20 @@ export default function App() {
           {!demoMode && (history?.hasOlder || history?.error) && <button className="load-history glass" disabled={history.loading} onClick={() => { void loadOlder(); }}>{history.loading ? 'Загружаем…' : history.error ? 'Повторить загрузку истории' : 'Более ранние сообщения'}</button>}
           {!demoMode && history?.error && <p className="history-error" role="alert">{history.error}</p>}
           {demoMode && <div className="date-separator"><span>Сегодня</span></div>}
-          {messages.map((message, index) => <Fragment key={message.id}>
+          {messages.map((message, index) => {
+            const original = message.replyToId ? messagesById.get(message.replyToId) : undefined;
+            return <Fragment key={message.id}>
             {message.createdAt && (!messages[index - 1]?.createdAt || new Date(messages[index - 1].createdAt!).toDateString() !== new Date(message.createdAt).toDateString()) && <div className="date-separator"><span>{dayLabel(message.createdAt)}</span></div>}
             {!demoMode && readEntry.boundary === message.id && <div className="unread-divider" data-unread-boundary><span>Новые сообщения</span></div>}
-            {message.kind === 'chapter' ? <div className="chapter-divider"><span>Новая глава · {message.text}</span></div> : <MessageBubble message={message} selected={selectedIds.includes(message.id)} selecting={selectedIds.length > 0} active={messageMenu?.message.id === message.id || highlightId === message.id} searchQuery={messageSearch||''} searchActive={searchActiveId===message.id} onMenu={setMessageMenu} onSelect={toggleSelected} onJump={jumpToMessage} />}
-          </Fragment>)}
+            {message.kind === 'chapter' ? <div className="chapter-divider"><span>Новая глава · {message.text}</span></div> : <MessageBubble message={message} quote={original ? quoteFor(original) : undefined} selected={selectedIds.includes(message.id)} selecting={selectedIds.length > 0} active={messageMenu?.message.id === message.id || highlightId === message.id} searchQuery={messageSearch||''} searchActive={searchActiveId===message.id} onMenu={setMessageMenu} onSelect={toggleSelected} onJump={jumpToMessage} />}
+            </Fragment>;
+          })}
           {messages.length === 0 && <div className="conversation-empty"><Star ambient /><p>{!demoMode && (history?.loading || live.loading) ? 'Загружаем переписку…' : messageSearch ? 'Сообщения не найдены' : 'С чего начнём разговор?'}</p></div>}
         </div></div>
         <div ref={composerArea} className={`composer-area ${recordingActive?'is-recording':''}`}>
           {selectedIds.length>0?<div className="selection-dock" aria-label="Действия с выбранными сообщениями"><IconButton label="Удалить выбранные сообщения" disabled={deleting} className="glass round" onClick={()=>requestDelete([...selectedIds])}><Trash2/></IconButton><span className="selection-count">Выбрано: {selectedIds.length}{!demoMode && selectedIds.length === 100 ? ' · максимум 100' : ''}</span><div className="selection-dock-actions"><IconButton label="Копировать выбранные сообщения" onClick={()=>void copyMessages(selectedIds)}><Copy/></IconButton><IconButton label="Сохранить выбранные сообщения в момент" disabled={!demoMode} onClick={()=>openMoment([...selectedIds])}><Bookmark/></IconButton><IconButton label="Переслать выбранные сообщения" disabled={!demoMode} className="glass round" onClick={()=>setForwardIds([...selectedIds])}><Forward/></IconButton></div></div>:<>
 
-          {(replyTo || editing) && <div className="composer-context">{editing ? <SquarePen size={19} /> : <Reply size={19} />}<span><strong>{editing ? 'Редактирование сообщения' : replyTo!.author}</strong><span>{editing ? state.messages.find(item => item.id === editing.messageId)?.text : replyTo!.text}</span></span><IconButton label={editing ? 'Отменить редактирование' : 'Отменить ответ'} onClick={() => { cancelEdit(); setReplyTo(null); }}><X size={18} /></IconButton></div>}
+          {(replyPreview || editing) && <div className="composer-context">{editing ? <SquarePen size={19} /> : <Reply size={19} />}<span><strong>{editing ? 'Редактирование сообщения' : replyPreview!.author}</strong><span>{editing ? state.messages.find(item => item.id === editing.messageId)?.text : replyPreview!.text}</span></span><IconButton label={editing ? 'Отменить редактирование' : 'Отменить ответ'} onClick={() => { cancelEdit(); setReplyTo(null); }}><X size={18} /></IconButton></div>}
           {currentAttachment && <div className="pending-media">{currentAttachment.items.map(asset => <div className="pending-item" key={asset.id}><Paperclip size={14} /><span>{asset.name}</span><IconButton label={`Убрать файл: ${asset.name}`} onClick={() => setAttachment(previous => previous ? { ...previous, items: previous.items.filter(item => item.id !== asset.id) } : null)}><X size={14} /></IconButton></div>)}</div>}
           {preparingFiles && <p className="preparing-files" role="status">Подготавливаем файлы…</p>}
           <form className="composer" onSubmit={sendMessage}>

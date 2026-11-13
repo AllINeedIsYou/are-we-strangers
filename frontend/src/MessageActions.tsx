@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { Bookmark, Check, CheckCheck, ChevronRight, CircleCheck, Search, Copy, Forward, Paperclip, Pin, PinOff, Reply, SquarePen, Trash2 } from 'lucide-react';
-import { messageSummary, type Chat, type Message } from './domain';
+import { messageSummary, type Chat, type Message, type ReplySnapshot } from './domain';
 import MediaView from './MediaView';
 import { SearchText } from './ConversationSearch';
 
 export type MessageMenuTarget = { message: Message; x: number; y: number };
 
-export function MessageBubble({ message, selected, selecting, active, searchQuery = '', searchActive = false, onMenu, onSelect, onJump }: {
-  message: Message; selected: boolean; selecting: boolean; active: boolean; searchQuery?: string; searchActive?: boolean;
+export function MessageBubble({ message, quote = message.replyTo, selected, selecting, active, searchQuery = '', searchActive = false, onMenu, onSelect, onJump }: {
+  message: Message; quote?: ReplySnapshot; selected: boolean; selecting: boolean; active: boolean; searchQuery?: string; searchActive?: boolean;
   onMenu: (target: MessageMenuTarget) => void; onSelect: (messageId: string) => void; onJump: (messageId: string) => void;
 }) {
   const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -44,7 +44,8 @@ export function MessageBubble({ message, selected, selecting, active, searchQuer
         }
       }}>
       {message.forwardedFrom && <span className="forwarded-label"><Forward size={12} />Переслано от {message.forwardedFrom}</span>}
-      {message.replyTo && <button className="message-quote" onClick={event => { event.stopPropagation(); onJump(message.replyTo!.id); }}><strong>{message.replyTo.author}</strong><span>{message.replyTo.text}</span></button>}
+      {quote ? <button type="button" className="message-quote" onClick={event => { event.stopPropagation(); onJump(quote.id); }}><strong>{quote.author}</strong><span>{quote.text}</span></button>
+        : message.replyToId && <div className="message-quote"><span>Исходное сообщение недоступно</span></div>}
       {message.media?.length ? <div className={`message-media ${allPhotos&&message.media!.length>1?'photo-album':''}`}>{message.media.map(asset => <MediaView key={asset.id} asset={asset} />)}</div> : null}
       {message.attachment && <span className="message-attachment"><Paperclip size={17} />{message.attachment}<small>Локальный пример · не загружен</small></span>}
       {message.text && <span className="message-body"><SearchText text={message.text} query={searchQuery}/></span>}
@@ -73,7 +74,7 @@ export function MessageContextMenu({live = false, forwardTargets,onForwardTo, ta
     return () => element.close();
   }, [target]);
   function item(label: string, icon: ReactNode, action: () => void, danger = false) {
-    const disabled = live && !['Копировать текст', 'Выбрать', 'Изменить', 'Удалить'].includes(label);
+    const disabled = live && !['Ответить', 'Копировать текст', 'Выбрать', 'Изменить', 'Удалить'].includes(label);
     return <button role="menuitem" disabled={disabled} title={disabled ? 'Пока доступно в демо' : undefined} className={danger ? 'danger' : ''} onClick={() => { onClose(); action(); }}>{icon}<span>{label}</span>{label === 'Переслать' && <ChevronRight className="context-chevron" />}</button>;
   }
   return <dialog ref={dialog} className="message-context glass" aria-label="Действия с сообщением" onCancel={onClose} onContextMenu={event => event.preventDefault()}

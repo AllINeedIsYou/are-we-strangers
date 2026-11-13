@@ -306,13 +306,13 @@ export class MessengerStore {
       this.upsertChats([chat]); void this.syncChat(chat.id, epoch); return chatKey(chat.id);
     } catch (error) { this.handleError(error, epoch); throw error; }
   };
-  sendText = async (key: string, text: string) => {
+  sendText = async (key: string, text: string, replyToId?: number) => {
     const chat = this.snapshot.state.chats.find(item => item.id === key);
     if (!chat?.serverId || !this.active || this.snapshot.sending[key]) return false;
     const epoch = this.epoch;
     this.update({ sending: { ...this.snapshot.sending, [key]: true } });
     try {
-      const message = await this.api.send(chat.serverId, text, this.abort.signal);
+      const message = await this.api.send(chat.serverId, text, this.abort.signal, replyToId);
       if (!this.current(epoch)) return false;
       this.receive(message); return true;
     } catch (error) {
