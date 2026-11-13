@@ -1,3 +1,5 @@
+from datetime import datetime,timezone
+
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from backend.app.models import Users,Messages
@@ -124,3 +126,46 @@ def delete_messages(session:Session,user:Users,chat_id:int,data:DeleteMessagesRe
         session.rollback()
         raise
     return chat, changed_message_ids
+
+def pin_message(session:Session,user:Users,chat_id:int, message_id:int):
+    chat=get_chat_for_user(session, user, chat_id)
+    message=session.query(Messages).filter(Messages.id==message_id,Messages.chat_id==chat.id,message_visible_to(user.id)).first()
+    if message is None:
+        raise HTTPException(status_code=404,detail="Сообщение не найдено")
+    try:
+        if message.pinned_at is not None:
+            return message
+
+        now = datetime.now(timezone.utc)
+        message.pinned_at=now
+        session.commit()
+
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+
+    session.refresh(message)
+    return message
+
+def unpin_message(session:Session,user:Users,chat_id:int, message_id:int):
+    chat=get_chat_for_user(session, user, chat_id)
+    message=session.query(Messages).filter(Messages.id==message_id,Messages.chat_id==chat.id,message_visible_to(user.id)).first()
+    if message is None:
+        raise HTTPException(status_code=404,detail="Сообщение не найдено")
+    try:
+        if message.pinned_at==None:
+            return message
+        else:
+                message.pinned_at = None
+                session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+
+    session.refresh(message)
+    return message
+
+def get_pinned_messages(session:Session,user:Users,chat_id:int):
+    chat = get_chat_for_user(session, user, chat_id)
+    message_list=session.query(Messages).filter(Messages.chat_id==chat_id,message_visible_to(user.id),Messages.pinned_at.isnot(None)).order_by(Messages.pinned_at.desc()).all()
+    return message_list

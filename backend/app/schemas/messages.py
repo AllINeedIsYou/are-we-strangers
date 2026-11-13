@@ -58,3 +58,4 @@ class DeleteMessagesResponse(BaseModel):
     chat_id:int
     message_ids: list[Annotated[int, Field(gt=0)]] = Field(max_length=100)
     scope:Literal["self", "everyone"]
+

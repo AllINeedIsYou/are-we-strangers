@@ -13,7 +13,9 @@ class Messages(Base):
 
     sender_id:Mapped[int]=mapped_column(ForeignKey('users.id'),index=True)
 
-    reply_to_id:Mapped[int|None]=mapped_column(ForeignKey('messages.id'),nullable=True)
+    reply_to_id:Mapped[int|None]=mapped_column(ForeignKey('messages.id'))
+
+    pinned_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),server_default=None)
 
     text:Mapped[str]=mapped_column(Text)
 

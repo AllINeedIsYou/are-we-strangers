@@ -48,6 +48,18 @@
 .composer-context strong{font-weight:500;color:#e3bcc2;font-size:12px}
 .composer-context>span>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#8b8b94}
 .composer-context .icon-button{width:26px;height:26px}
+.composer-context.composer-context-reply{
+  gap:10px;
+  padding:4px 11px;
+  border-radius:12px;
+  margin-bottom:6px;
+  background:linear-gradient(110deg,#370a16e8,#1e0b12e8);
+  -webkit-backdrop-filter:blur(12px);
+  backdrop-filter:blur(12px);
+}
+.composer-context-reply>span{gap:1px;font-size:15px;line-height:17px}
+.composer-context-reply strong{font-size:14px;line-height:16px}
+.composer-context.composer-context-reply>span>span{color:#f0dce0}
 .modal-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:25px}
 .modal-actions .primary{min-height:42px;font-size:14px}
 .undo-notice{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);z-index:45;display:flex;gap:20px;align-items:center;padding:7px 12px 7px 19px;border-radius:14px;background-color:#252528ee;font-size:13px;max-width:calc(100% - 24px)}
