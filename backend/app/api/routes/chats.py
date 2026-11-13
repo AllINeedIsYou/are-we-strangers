@@ -1,10 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from backend.database.session import SessionDep
 from backend.app.api.dependencies import CurrentUser
 from backend.app.schemas.chats import ChatResponse,CreateChatRequest
 from backend.app.services.chats import get_or_create_chat,get_user_chats,get_unread_counts
-from backend.app.schemas.messages import ReadMessagesResponse,ReadMessagesRequest
-from backend.app.services.messages import mark_messages_read
+from backend.app.schemas.messages import ReadMessagesResponse, ReadMessagesRequest, MessageResponse
+from backend.app.services.messages import mark_messages_read, get_pinned_messages,unpin_message,pin_message
 from backend.app.core.connections import connection_manager
 from anyio import from_thread
 
@@ -68,3 +68,56 @@ def read_messages(session:SessionDep,chat_id:int,user:CurrentUser,data:ReadMessa
 
     else:
         return response
+
+
+@chats_router.get('/{chat_id}/pins', response_model=list[MessageResponse])
+def get_pins(session:SessionDep,user:CurrentUser,chat_id:int):
+    list=get_pinned_messages(session, user, chat_id)
+    return list
+
+@chats_router.post('/{chat_id}/pins/{message_id}',status_code=204)
+def pin_endpoint_message(session:SessionDep,user:CurrentUser,chat_id:int,message_id:int):
+    chat,changed=pin_message(session, user, chat_id, message_id)
+
+    if changed:
+        event={
+            "type":"chat.pins_changed",
+            "chat_id":chat_id
+        }
+
+        from_thread.run(
+            connection_manager.send_to_user,
+            chat.first_user_id,
+            event
+        )
+
+        from_thread.run(
+            connection_manager.send_to_user,
+            chat.second_user_id,
+            event
+        )
+    return Response(status_code=204)
+
+@chats_router.delete('/{chat_id}/pins/{message_id}',status_code=204)
+def unpin_endpoint_message(session:SessionDep,user:CurrentUser,chat_id:int,message_id:int):
+    chat,changed=unpin_message(session, user, chat_id, message_id)
+
+    if changed:
+        event = {
+            "type": "chat.pins_changed",
+            "chat_id": chat_id
+        }
+
+        from_thread.run(
+            connection_manager.send_to_user,
+            chat.first_user_id,
+            event
+        )
+
+        from_thread.run(
+            connection_manager.send_to_user,
+            chat.second_user_id,
+            event
+        )
+
+    return Response(status_code=204)

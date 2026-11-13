@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Bookmark, Check, CheckCheck, ChevronRight, CircleCheck, Search, Copy, Forward, Paperclip, Pin, PinOff, Reply, SquarePen, Trash2 } from 'lucide-react';
 import { messageSummary, type Chat, type Message, type ReplySnapshot } from './domain';
 import MediaView from './MediaView';
@@ -6,33 +6,15 @@ import { SearchText } from './ConversationSearch';
 
 export type MessageMenuTarget = { message: Message; x: number; y: number };
 
-export function MessageBubble({ message, quote = message.replyTo, selected, selecting, active, searchQuery = '', searchActive = false, onMenu, onSelect, onJump }: {
-  message: Message; quote?: ReplySnapshot; selected: boolean; selecting: boolean; active: boolean; searchQuery?: string; searchActive?: boolean;
+export function MessageBubble({ message, pinned = message.pinned, quote = message.replyTo, selected, selecting, active, searchQuery = '', searchActive = false, onMenu, onSelect, onJump }: {
+  message: Message; pinned?: boolean; quote?: ReplySnapshot; selected: boolean; selecting: boolean; active: boolean; searchQuery?: string; searchActive?: boolean;
   onMenu: (target: MessageMenuTarget) => void; onSelect: (messageId: string) => void; onJump: (messageId: string) => void;
 }) {
-  const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const start = useRef({ x: 0, y: 0 });
-  const suppressClickUntil = useRef(0);
-  function cancelHold() { if (hold.current) { clearTimeout(hold.current); hold.current = null; } }
-  useEffect(() => cancelHold, []);
-  function pointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || (event.pointerType === 'mouse' && window.innerWidth > 760)) return;
-    cancelHold();
-    start.current = { x: event.clientX, y: event.clientY };
-    hold.current = setTimeout(() => {
-      suppressClickUntil.current = Date.now() + 900;
-      onMenu({ message, ...start.current });
-      hold.current = null;
-    }, 500);
-  }
   const allPhotos=!!message.media?.length&&message.media.every(asset=>asset.kind==='photo');
   return <div className={`message-row ${message.own ? 'own' : 'incoming'} ${selected ? 'message-selected' : ''} ${searchActive?'search-active-row':''}`} data-message-id={message.id}>
     {selecting && <button className="selection-check" aria-label={`${selected ? 'Снять выбор' : 'Выбрать сообщение'}: ${messageSummary(message)}`} aria-pressed={selected} onClick={() => onSelect(message.id)}>{selected && <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10 3.7 3.7 7.3-7.4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}</button>}
     <div className={`bubble glass ${message.own ? 'red-glass' : ''} ${active ? 'context-active' : ''} ${message.media?.length === 1 && message.media[0].kind === 'circle' && !message.text ? 'circle-bubble' : ''} ${allPhotos?'photo-bubble':''} ${allPhotos&&!message.text?'media-only':''}`} tabIndex={0} role="group" aria-label={`Сообщение: ${messageSummary(message)}. ${message.time}`} aria-haspopup="menu"
-      onContextMenu={event => { event.preventDefault(); cancelHold(); onMenu({ message, x: event.clientX, y: event.clientY }); }}
-      onPointerDown={pointerDown} onPointerUp={cancelHold} onPointerCancel={cancelHold}
-      onPointerMove={event => { if (Math.hypot(event.clientX - start.current.x, event.clientY - start.current.y) > 10) cancelHold(); }}
-      onClickCapture={event => { if (Date.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } }}
+      onContextMenu={event => { event.preventDefault(); onMenu({ message, x: event.clientX, y: event.clientY }); }}
       onClick={event => { if (selecting) { event.preventDefault(); onSelect(message.id); } }}
       onKeyDown={event => {
         if (event.key === 'Enter' && event.target !== event.currentTarget) return;
@@ -49,14 +31,15 @@ export function MessageBubble({ message, quote = message.replyTo, selected, sele
       {message.media?.length ? <div className={`message-media ${allPhotos&&message.media!.length>1?'photo-album':''}`}>{message.media.map(asset => <MediaView key={asset.id} asset={asset} />)}</div> : null}
       {message.attachment && <span className="message-attachment"><Paperclip size={17} />{message.attachment}<small>Локальный пример · не загружен</small></span>}
       {message.text && <span className="message-body"><SearchText text={message.text} query={searchQuery}/></span>}
-      <span className="message-meta">{message.pinned && <Pin size={11} aria-label="Закреплено" />}{message.edited && <span>изм.</span>}<time>{message.time}</time>{message.own && (message.serverId ? message.read ? <CheckCheck size={16} aria-label="Прочитано" /> : <Check size={16} aria-label="Сохранено на сервере" /> : <CheckCheck size={16} aria-label="Прочитано в демо" />)}</span>
+      <span className="message-meta">{pinned && <Pin size={11} aria-label="Закреплено" />}{message.edited && <span>изм.</span>}<time>{message.time}</time>{message.own && (message.serverId ? message.read ? <CheckCheck size={16} aria-label="Прочитано" /> : <Check size={16} aria-label="Сохранено на сервере" /> : <CheckCheck size={16} aria-label="Прочитано в демо" />)}</span>
     </div>
   </div>;
 }
 
-export function MessageContextMenu({live = false, forwardTargets,onForwardTo, target, onClose, onReply, onCopy, onEdit, onPin, onForward, onSelect, onMoment, onDelete }: {
+export function MessageContextMenu({live = false, pinned = false, pinBusy = false, forwardBusy = false, forwardTargets,onForwardTo, target, onClose, onReply, onCopy, onEdit, onPin, onForward, onSelect, onMoment, onDelete }: {
   live?: boolean;
-  forwardTargets:Chat[];onForwardTo:(chatId:string)=>void;
+  pinned?: boolean; pinBusy?: boolean;
+  forwardBusy?: boolean; forwardTargets:Chat[];onForwardTo:(chatId:string)=>void;
   target: MessageMenuTarget; onClose: () => void; onReply: () => void; onCopy: () => void; onEdit: () => void;
   onPin: () => void; onForward: () => void; onSelect: () => void; onMoment: () => void; onDelete: () => void;
 }) {
@@ -74,8 +57,9 @@ export function MessageContextMenu({live = false, forwardTargets,onForwardTo, ta
     return () => element.close();
   }, [target]);
   function item(label: string, icon: ReactNode, action: () => void, danger = false) {
-    const disabled = live && !['Ответить', 'Копировать текст', 'Выбрать', 'Изменить', 'Удалить'].includes(label);
-    return <button role="menuitem" disabled={disabled} title={disabled ? 'Пока доступно в демо' : undefined} className={danger ? 'danger' : ''} onClick={() => { onClose(); action(); }}>{icon}<span>{label}</span>{label === 'Переслать' && <ChevronRight className="context-chevron" />}</button>;
+    const demoOnly = live && !['Ответить', 'Копировать текст', 'Выбрать', 'Изменить', 'Удалить', 'Закрепить', 'Открепить'].includes(label);
+    const disabled = demoOnly || (pinBusy && (label === 'Закрепить' || label === 'Открепить'));
+    return <button role="menuitem" disabled={disabled} title={demoOnly ? 'Пока доступно в демо' : undefined} className={danger ? 'danger' : ''} onClick={() => { onClose(); action(); }}>{icon}<span>{label}</span>{label === 'Переслать' && <ChevronRight className="context-chevron" />}</button>;
   }
   return <dialog ref={dialog} className="message-context glass" aria-label="Действия с сообщением" onCancel={onClose} onContextMenu={event => event.preventDefault()}
     onClick={event => { if (event.target === dialog.current) onClose(); }} onKeyDown={event => {
@@ -91,8 +75,8 @@ export function MessageContextMenu({live = false, forwardTargets,onForwardTo, ta
       {item('Копировать текст', <Copy />, onCopy)}
       <div className="context-divider" />
       {target.message.own && item('Изменить', <SquarePen />, onEdit)}
-      {item(target.message.pinned ? 'Открепить' : 'Закрепить', target.message.pinned ? <PinOff /> : <Pin />, onPin)}
-      <button role="menuitem" disabled={live} title={live ? 'Пока доступно в демо' : undefined} data-forward-trigger aria-expanded={forwardOpen} onClick={()=>{if(innerWidth>760)setForwardOpen(v=>!v);else{onClose();onForward();}}}><Forward/><span>Переслать</span><ChevronRight className="context-chevron"/></button>
+      {item(pinned ? 'Открепить' : 'Закрепить', pinned ? <PinOff /> : <Pin />, onPin)}
+      <button role="menuitem" disabled={forwardBusy} data-forward-trigger aria-expanded={forwardOpen} onClick={()=>{if(innerWidth>760)setForwardOpen(v=>!v);else{onClose();onForward();}}}><Forward/><span>Переслать</span><ChevronRight className="context-chevron"/></button>
       {item('Выбрать', <CircleCheck />, onSelect)}
       {item('Добавить момент', <Bookmark />, onMoment)}
       <div className="context-divider" />

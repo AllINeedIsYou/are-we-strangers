@@ -32,9 +32,9 @@
 .conversation:has(.selection-toolbar) .messages-scroll{padding-top:120px}
 .conversation:has(.pinned-bar) .messages-scroll{padding-top:120px}
 .message-search,.selection-toolbar,.pinned-bar{position:relative;z-index:4;top:66px}
-.contact-button.glass,.header-actions.glass,.composer-input.glass,.composer>.glass,.record-action.glass,.search-wrap.glass{background:linear-gradient(135deg,#ffffff0c,#ffffff01 55%,#ffffff05),#17191d42;border:1px solid #ffffff24;box-shadow:inset 0 1px 1px #ffffff19,inset 0 -1px 1px #ffffff06,0 2px 7px #0002;backdrop-filter:blur(14px) saturate(.8);-webkit-backdrop-filter:blur(14px) saturate(.8)}
+.contact-button.glass,.header-actions.glass,.pinned-bar.glass,.composer-input.glass,.composer>.glass,.record-action.glass,.search-wrap.glass{background:linear-gradient(135deg,#ffffff0c,#ffffff01 55%,#ffffff05),#17191d42;border:1px solid #ffffff24;box-shadow:inset 0 1px 1px #ffffff19,inset 0 -1px 1px #ffffff06,0 2px 7px #0002;backdrop-filter:blur(14px) saturate(.8);-webkit-backdrop-filter:blur(14px) saturate(.8)}
 .composer>.red-glass,.record-action.red-glass{background:linear-gradient(135deg,#ffffff14,#ffffff00 65%),#90001e70;border-color:#dc284b80;backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3)}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.contact-button.glass,.header-actions.glass,.composer-input.glass,.composer>.glass,.record-action.glass{background-color:#18191ddd}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.contact-button.glass,.header-actions.glass,.pinned-bar.glass,.composer-input.glass,.composer>.glass,.record-action.glass{background-color:#18191ddd}}
 .record-action-wrap{position:relative;flex-shrink:0;width:40px;height:40px}
 .record-action{width:40px;height:40px;padding:0;border-radius:50%;touch-action:none;user-select:none;-webkit-user-select:none}
 .record-action svg{width:21px;height:21px}

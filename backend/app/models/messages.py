@@ -25,6 +25,8 @@ class Messages(Base):
 
     is_edited:Mapped[bool]=mapped_column(server_default=false())
 
+    forwarded_from_name:Mapped[str|None]
+
     deleted_for_sender:Mapped[bool]=mapped_column(server_default=false())
 
     deleted_for_recipient: Mapped[bool] = mapped_column(server_default=false())

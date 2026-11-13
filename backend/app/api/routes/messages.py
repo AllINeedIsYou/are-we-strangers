@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from backend.app.api.dependencies import CurrentUser
-from backend.app.schemas.messages import MessageResponse, CreateMessageRequest,EditMessageRequest,DeleteMessagesRequest,DeleteMessagesResponse
+from backend.app.schemas.messages import MessageResponse, CreateMessageRequest,EditMessageRequest,DeleteMessagesRequest,DeleteMessagesResponse,ForwardMessagesRequest
 from backend.app.services.chats import get_chat_for_user
-from backend.app.services.messages import create_message,get_chat_messages,edit_message,delete_messages
+from backend.app.services.messages import create_message,get_chat_messages,edit_message,delete_messages,forward_messages
 from backend.database.session import SessionDep
 from backend.app.core.connections import connection_manager
 from anyio import from_thread
@@ -92,3 +92,34 @@ def messages_delete(session:SessionDep,user:CurrentUser,chat_id:int,data:DeleteM
                 connection_manager.send_to_user, partner_id, event
             )
     return response
+
+@message_router.post('/forward',response_model=list[MessageResponse],status_code=201)
+def forward_endpoint_messages(session:SessionDep,user:CurrentUser,chat_id:int,data:ForwardMessagesRequest):
+    list_of_copy_message=forward_messages(session=session,user=user,chat_id=chat_id,source_chat_id=data.source_chat_id,message_ids=data.message_ids)
+
+    chat = get_chat_for_user(session, user, chat_id)
+    first_user = chat.first_user_id
+    second_user = chat.second_user_id
+
+    for copy_message in list_of_copy_message:
+        event={
+            "type":"message.created",
+            "message":MessageResponse.model_validate(copy_message).model_dump(mode="json")
+        }
+
+
+        from_thread.run(
+            connection_manager.send_to_user,  # отправка сообщения 1 юзеру
+            first_user,
+            event
+        )
+
+        from_thread.run(
+            connection_manager.send_to_user,  # отправка сообщения 2 юзеру
+            second_user,
+            event
+        )
+
+    return list_of_copy_message
+
+

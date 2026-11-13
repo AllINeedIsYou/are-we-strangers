@@ -27,6 +27,7 @@ class MessageResponse(BaseModel):
     is_read:bool
     is_edited:bool
     reply_to_id:int|None
+    forwarded_from_name:str|None=None
 
 
 class ReadMessagesRequest(BaseModel):
@@ -59,3 +60,7 @@ class DeleteMessagesResponse(BaseModel):
     message_ids: list[Annotated[int, Field(gt=0)]] = Field(max_length=100)
     scope:Literal["self", "everyone"]
 
+
+class ForwardMessagesRequest(BaseModel):
+    message_ids: list[Annotated[int, Field(gt=0)]] = Field(min_length=1, max_length=100)
+    source_chat_id:int=Field(gt=0)

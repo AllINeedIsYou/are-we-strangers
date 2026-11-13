@@ -1,13 +1,13 @@
 import { ApiError, friendlyError } from './authApi.ts';
 import { chatKey, isDeletedMessages, isReadReceipt, isServerMessage, mergeMessages, messengerApi, toChat, toMessage, type DeletedMessages, type ReadReceipt, type ServerChat, type ServerMessage } from './messengerApi.ts';
-import type { DemoState } from './domain.ts';
+import type { DemoState, Message } from './domain.ts';
 
 type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'offline';
 type HistoryStatus = { loading: boolean; hasOlder: boolean; error: string };
 export type MessengerSnapshot = { state: DemoState; loading: boolean; error: string; connection: ConnectionStatus;
-  history: Record<string, HistoryStatus>; sending: Record<string, boolean> };
+  history: Record<string, HistoryStatus>; sending: Record<string, boolean>; pins: Record<string, Message[]>; pinBusy: Record<string, boolean> };
 const emptyState = (): DemoState => ({ chats: [], messages: [], moments: [], questions: [], chapters: [] });
-export const emptySnapshot = (): MessengerSnapshot => ({ state: emptyState(), loading: true, error: '', connection: 'connecting', history: {}, sending: {} });
+export const emptySnapshot = (): MessengerSnapshot => ({ state: emptyState(), loading: true, error: '', connection: 'connecting', history: {}, sending: {}, pins: {}, pinBusy: {} });
 type Options = { api?: typeof messengerApi; connect?: () => WebSocket; onExpired: () => void; onIncoming: (chatId: string) => void; onDelete?: (ids: string[], signal: AbortSignal) => Promise<void> };
 
 // Only confirmed server messages enter this store. POST and WS merge by the same ID.
@@ -31,6 +31,7 @@ export class MessengerStore {
   private olderJobs = new Set<string>();
   private syncedThrough = new Map<number, number>();
   private selectedChat = '';
+  private pinRequests = new Map<string, symbol>();
   private sequence = 0;
   private versions = new Map<number, number>();
   private readIds = new Set<number>();
@@ -66,6 +67,7 @@ export class MessengerStore {
     clearTimeout(this.retryTimer); clearTimeout(this.metadataTimer); this.refreshJob = null; this.refreshQueued = false; this.olderJobs.clear();
     for (const animation of this.deletionAnimations.values()) animation.abort.abort();
     this.deletionAnimations.clear();
+    this.pinRequests.clear();
     const socket = this.socket; this.socket = null;
     if (socket) { socket.onclose = null; socket.onerror = null; socket.onmessage = null; socket.close(); }
   }
@@ -90,6 +92,7 @@ export class MessengerStore {
         this.clearSocketTimers(); this.attempts = 0; this.update({ connection: 'online' });
         // Refresh after subscribing: messages written during the handshake are recovered from history.
         void this.refresh();
+        void this.loadPins(this.selectedChat);
         this.heartbeat = setInterval(() => {
           if (!valid() || socket.readyState !== 1) return;
           try {
@@ -102,6 +105,10 @@ export class MessengerStore {
       else if (data.type === 'messages.read' && isReadReceipt(data)) this.receiveRead(data);
       else if (data.type === 'message.updated' && 'message' in data && isServerMessage(data.message)) this.receiveEdit(data.message);
       else if (data.type === 'messages.deleted' && isDeletedMessages(data)) void this.receiveDelete(data);
+      else if (data.type === 'chat.pins_changed' && 'chat_id' in data && typeof data.chat_id === 'number') {
+        const key = chatKey(data.chat_id);
+        if (key === this.selectedChat || this.snapshot.pins[key]) void this.loadPins(key);
+      }
     };
     socket.onerror = () => { if (valid()) socket.close(); };
     socket.onclose = () => {
@@ -126,6 +133,7 @@ export class MessengerStore {
     clearTimeout(this.retryTimer);
     if (!this.socket) this.connect();
     void this.refresh();
+    void this.loadPins(this.selectedChat);
   };
   private upsertChats(chats: ServerChat[], replace = false) {
     const known = new Map(this.snapshot.state.chats.map(chat => [chat.id, chat]));
@@ -165,7 +173,43 @@ export class MessengerStore {
     this.moveToTop(mapped.chatId); this.metadataChanged();
     if (!this.snapshot.state.chats.some(chat => chat.id === mapped.chatId)) void this.refresh();
   }
-  selectChat = (chatId: string) => { this.selectedChat = chatId; };
+  selectChat = (chatId: string) => {
+    if (this.selectedChat === chatId) return;
+    this.selectedChat = chatId;
+    void this.loadPins(chatId);
+  };
+  private async loadPins(key: string) {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!this.active || !chatId) return;
+    const epoch = this.epoch;
+    const request = Symbol();
+    this.pinRequests.set(key, request);
+    try {
+      const rows = await this.api.pins(chatId, this.abort.signal);
+      if (!this.current(epoch) || this.pinRequests.get(key) !== request) return;
+      const pins = rows.filter(row => !this.hiddenIds.has(row.id)).map(row => toMessage(row, this.ownId));
+      this.update({ pins: { ...this.snapshot.pins, [key]: pins } });
+    } catch (error) {
+      if (this.pinRequests.get(key) === request) this.handleError(error, epoch);
+    } finally {
+      if (this.pinRequests.get(key) === request) this.pinRequests.delete(key);
+    }
+  }
+  setPin = async (key: string, messageId: number, pinned: boolean) => {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!this.active || !chatId || this.snapshot.pinBusy[key]) return;
+    const epoch = this.epoch;
+    this.update({ pinBusy: { ...this.snapshot.pinBusy, [key]: true } });
+    try {
+      await this.api.setPin(chatId, messageId, pinned, this.abort.signal);
+      if (this.current(epoch)) await this.loadPins(key);
+    } catch (error) {
+      this.handleError(error, epoch);
+      if (this.current(epoch)) throw error;
+    } finally {
+      if (this.current(epoch)) this.update({ pinBusy: { ...this.snapshot.pinBusy, [key]: false } });
+    }
+  };
   private receiveRead(receipt: ReadReceipt) {
     const ids = new Set(receipt.message_ids);
     for (const id of ids) { this.readIds.add(id); this.versions.set(id, ++this.sequence); }
@@ -176,7 +220,9 @@ export class MessengerStore {
   }
   private receiveEdit(message: ServerMessage) {
     this.versions.set(message.id, ++this.sequence);
-    if (this.snapshot.state.messages.some(item => item.serverId === message.id && item.chatId === chatKey(message.chat_id))) this.merge([message]);
+    const key = chatKey(message.chat_id);
+    if (this.snapshot.state.messages.some(item => item.serverId === message.id && item.chatId === key)) this.merge([message]);
+    if (this.pinRequests.has(key) || this.snapshot.pins[key]?.some(pin => pin.serverId === message.id)) void this.loadPins(key);
   }
   private startDeletionAnimation(ids: number[]) {
     const fresh = ids.filter(id => !this.deletionAnimations.has(id));
@@ -192,6 +238,10 @@ export class MessengerStore {
     for (const id of fresh) { this.hiddenIds.add(id); this.versions.set(id, ++this.sequence); }
     if (fresh.length) {
       const epoch = this.epoch;
+      const key = chatKey(result.chat_id);
+      if (this.snapshot.pins[key]) {
+        this.update({ pins: { ...this.snapshot.pins, [key]: this.snapshot.pins[key].filter(pin => !this.hiddenIds.has(pin.serverId!)) } });
+      }
       this.startDeletionAnimation(fresh);
       const job = (async () => {
         await Promise.all(fresh.map(id => this.deletionAnimations.get(id)?.promise));
@@ -321,6 +371,28 @@ export class MessengerStore {
       if (this.current(epoch)) void this.refresh();
       throw error;
     } finally { if (this.current(epoch)) this.update({ sending: { ...this.snapshot.sending, [key]: false } }); }
+  };
+  forwardMessages = async (sourceKey: string, targetKey: string, ids: string[]) => {
+    const source = this.snapshot.state.chats.find(chat => chat.id === sourceKey);
+    const target = this.snapshot.state.chats.find(chat => chat.id === targetKey);
+    if (!source?.serverId || !target?.serverId || !this.active) return false;
+    const selected = new Set(ids);
+    if (!selected.size || selected.size > 100) throw new ApiError(422, 'Выбери от 1 до 100 сообщений');
+    const messageIds = this.snapshot.state.messages.flatMap(message =>
+      message.chatId === sourceKey && selected.has(message.id) && message.serverId && !this.hiddenIds.has(message.serverId) ? [message.serverId] : [],
+    );
+    if (messageIds.length !== selected.size) throw new ApiError(404, 'Одно или несколько сообщений недоступны');
+    const epoch = this.epoch;
+    try {
+      const copies = await this.api.forward(target.serverId, source.serverId, messageIds, this.abort.signal);
+      if (!this.current(epoch)) return false;
+      for (const copy of copies) this.receive(copy);
+      return true;
+    } catch (error) {
+      this.handleError(error, epoch);
+      if (this.current(epoch)) void this.refresh();
+      throw error;
+    }
   };
   prepareChat = async (key: string) => {
     // The API provides a count, not a first-unread cursor. Walk back until the

@@ -9,7 +9,7 @@
 .header-actions{height:48px;gap:1px;padding:2px 7px;border-radius:28px;flex-shrink:0}
 .header-actions .icon-button{width:35px;height:35px;border-radius:50%}
 .header-actions svg,.header-actions .icon-button:last-child svg{width:23px;height:23px}
-.contact-button.glass,.header-actions.glass{background:linear-gradient(145deg,#ffffff0e,#ffffff03 50%,#ffffff09),#191b1ed1;border-color:#ffffff1c;backdrop-filter:blur(28px) saturate(.5);-webkit-backdrop-filter:blur(28px) saturate(.5)}
+.contact-button.glass,.header-actions.glass,.pinned-bar.glass{background:linear-gradient(145deg,#ffffff0e,#ffffff03 50%,#ffffff09),#191b1ed1;border-color:#ffffff1c;backdrop-filter:blur(28px) saturate(.5);-webkit-backdrop-filter:blur(28px) saturate(.5)}
 .composer-area{padding:8px 12px 12px;background:transparent}
 .composer{gap:9px;align-items:flex-end}
 .composer>.round{width:40px;height:40px;padding:0}
@@ -29,18 +29,6 @@
 .pinned-entry .pinned-choice{flex:1;min-width:0}
 .pinned-entry>.icon-button{width:35px;height:35px;flex-shrink:0}
 .pinned-bar>.icon-button{padding:0;flex-shrink:0}
-.delete-dialog{width:min(520px,calc(100% - 32px));border-radius:27px;padding:30px 28px;background:#14171aef}
-.delete-dialog>header{justify-content:center;margin-bottom:26px}
-.delete-dialog>header h2{text-align:center;font-size:20px;line-height:1.4;font-weight:500}
-.delete-dialog>header>.icon-button{display:none}
-.delete-scope{display:flex;align-items:center;gap:14px;font-size:17px;line-height:1.4;padding:5px 0 16px;cursor:pointer}
-.delete-scope input{appearance:none;-webkit-appearance:none;width:25px;height:25px;border:1px solid #ffffff40;border-radius:50%;margin:0;display:grid;place-items:center;flex-shrink:0;background:#ffffff05;cursor:pointer}
-.delete-scope input:checked{background:#a50022;border-color:#c12b46}
-.delete-scope input:checked:after{content:'';display:block;width:11px;height:6px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
-.delete-scope input:focus-visible{outline:2px solid #f5b7c2;outline-offset:4px}
-.delete-dialog .modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:17px}
-.delete-dialog .modal-actions button{border-radius:30px;min-height:49px;font-size:17px}
-.delete-dialog .secondary{background-color:#292c31bd;color:#b8b9c3}
 .pending-media{display:flex;gap:7px;overflow:auto;margin:0 50px 8px;padding:2px 0}
 .pending-item{display:flex;align-items:center;gap:7px;padding:4px 8px;border-radius:13px;background:#ffffff08;max-width:230px;flex-shrink:0;color:#aaa;font-size:11px}
 .pending-item>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -141,10 +129,6 @@
   .photo-media img{max-height:270px}
   .circle-player,.circle-bubble{width:180px;height:auto;min-height:0}
   .circle-player{height:180px}
-  .delete-dialog{padding:26px 21px}
-  .delete-dialog>header h2{font-size:18px}
-  .delete-scope{font-size:15px;gap:11px}
-  .delete-dialog .modal-actions button{font-size:16px;min-height:45px}
 }
 @media(prefers-reduced-motion:reduce){.auth-screen .star.is-twinkling{animation:none}}
 @keyframes star-pulse{0%,100%{filter:none;opacity:1}40%{filter:drop-shadow(0 0 9px #ffffff80);opacity:1}70%{filter:drop-shadow(0 0 3px #ffffff30);opacity:1}}

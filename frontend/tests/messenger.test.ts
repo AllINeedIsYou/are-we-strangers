@@ -21,7 +21,7 @@ function harness(api: Partial<typeof messengerApi> = {}, onDelete?: (ids: string
   const sockets: Socket[] = [], incoming: string[] = [];
   let expired = false;
   const store = new MessengerStore(3, {
-    api: { ...messengerApi, chats: async () => [chat], messages: async () => [], ...api },
+    api: { ...messengerApi, chats: async () => [chat], messages: async () => [], pins: async () => [], ...api },
     connect: () => { const socket = new Socket(); sockets.push(socket); return socket as unknown as WebSocket; },
     onExpired: () => { expired = true; }, onIncoming: key => incoming.push(key), onDelete,
   });
@@ -58,6 +58,35 @@ test('malformed and wrong-chat responses are rejected before entering the UI', a
   await assert.rejects(messengerApi.messages(7), ApiError);
   t.mock.method(globalThis, 'fetch', async () => Response.json([{ id: 1 }]));
   await assert.rejects(messengerApi.chats(), ApiError);
+});
+
+test('forwarding posts to the destination and preserves the original author through HTTP and WebSocket', async t => {
+  const destination = { ...chat, id: 9, partner: { id: 4, name: 'Нео', username: '@neo' } };
+  const original = { ...message(11), forwarded_from_name: 'Саша' };
+  const copies = [
+    { ...message(20, 3), chat_id: 9, text: message(10).text, forwarded_from_name: 'Мира' },
+    { ...message(21, 3), chat_id: 9, text: original.text, forwarded_from_name: 'Саша' },
+  ];
+  let destinationHistory: ServerMessage[] = [];
+  const h = harness({ chats: async () => [chat, destination], messages: async id => id === 7 ? [message(10), original] : destinationHistory });
+  const request = t.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
+    assert.equal(url, '/api/chats/9/messages/forward');
+    assert.equal(options.method, 'POST');
+    assert.deepEqual(JSON.parse(String(options.body)), { source_chat_id: 7, message_ids: [10, 11] });
+    destinationHistory = copies;
+    h.sockets[0].event({ type: 'message.created', message: copies[0] });
+    return Response.json(copies, { status: 201 });
+  });
+  t.after(() => h.store.stop()); h.store.start(); await tick();
+  assert.equal(h.store.getSnapshot().state.messages.find(item => item.id === 'message-11')?.forwardedFrom, 'Саша');
+  await assert.rejects(h.store.forwardMessages('server-7', 'server-9', ['message-999']), { status: 404 });
+  assert.equal(await h.store.forwardMessages('server-7', 'server-9', ['message-11', 'message-10']), true);
+  h.sockets[0].event({ type: 'message.created', message: copies[1] });
+  assert.equal(request.mock.callCount(), 1);
+  assert.deepEqual(h.store.getSnapshot().state.messages.filter(item => item.chatId === 'server-9').map(item => [item.text, item.forwardedFrom, item.own]), [
+    [message(10).text, 'Мира', true], [original.text, 'Саша', true],
+  ]);
+  assert.equal(h.store.getSnapshot().state.chats[0].id, 'server-9');
 });
 
 test('POST plus repeated WS events produce one message; own events do not notify', async t => {
@@ -323,4 +352,33 @@ test('delete failure cancels the preview animation and leaves the message availa
   const deletion = h.store.deleteMessages('server-7', ['message-1'], 'self'); await tick();
   reject(new ApiError(503, 'offline')); await assert.rejects(deletion); await tick();
   assert.equal(cancelled, true); assert.equal(h.store.getSnapshot().state.messages.length, 1);
+});
+
+test('pins load separately from history and refresh after local or remote changes', async (t) => {
+  let pinned = [message(5)];
+  const calls: Array<[number, number, boolean]> = [];
+  const { store, sockets } = harness({
+    pins: async () => pinned,
+    messages: async () => [message(100)],
+    setPin: async (chatId, messageId, active) => {
+      calls.push([chatId, messageId, active]);
+      pinned = active ? [message(messageId), ...pinned] : pinned.filter(row => row.id !== messageId);
+    },
+  });
+  t.after(() => store.stop());
+  store.start();
+  await tick();
+  store.selectChat('server-7');
+  await tick();
+  assert.deepEqual(store.getSnapshot().pins['server-7'].map(row => row.serverId), [5]);
+  assert.deepEqual(store.getSnapshot().state.messages.map(row => row.serverId), [100]);
+  await store.setPin('server-7', 100, true);
+  assert.deepEqual(calls, [[7, 100, true]]);
+  assert.deepEqual(store.getSnapshot().pins['server-7'].map(row => row.serverId), [100, 5]);
+  pinned = [message(5)];
+  sockets[0].event({type: 'chat.pins_changed', chat_id: 7});
+  await tick();
+  assert.deepEqual(store.getSnapshot().pins['server-7'].map(row => row.serverId), [5]);
+  sockets[0].event({type: 'messages.deleted', chat_id: 7, message_ids: [5], actor_id: 3, scope: 'self'});
+  assert.deepEqual(store.getSnapshot().pins['server-7'], []);
 });

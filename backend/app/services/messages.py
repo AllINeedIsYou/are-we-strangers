@@ -1,5 +1,4 @@
 from datetime import datetime,timezone
-
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from backend.app.models import Users,Messages
@@ -134,7 +133,7 @@ def pin_message(session:Session,user:Users,chat_id:int, message_id:int):
         raise HTTPException(status_code=404,detail="Сообщение не найдено")
     try:
         if message.pinned_at is not None:
-            return message
+            return chat,False
 
         now = datetime.now(timezone.utc)
         message.pinned_at=now
@@ -145,7 +144,7 @@ def pin_message(session:Session,user:Users,chat_id:int, message_id:int):
         raise
 
     session.refresh(message)
-    return message
+    return chat,True
 
 def unpin_message(session:Session,user:Users,chat_id:int, message_id:int):
     chat=get_chat_for_user(session, user, chat_id)
@@ -154,7 +153,7 @@ def unpin_message(session:Session,user:Users,chat_id:int, message_id:int):
         raise HTTPException(status_code=404,detail="Сообщение не найдено")
     try:
         if message.pinned_at==None:
-            return message
+            return chat,False
         else:
                 message.pinned_at = None
                 session.commit()
@@ -163,9 +162,44 @@ def unpin_message(session:Session,user:Users,chat_id:int, message_id:int):
         raise
 
     session.refresh(message)
-    return message
+    return chat,True
+
 
 def get_pinned_messages(session:Session,user:Users,chat_id:int):
     chat = get_chat_for_user(session, user, chat_id)
     message_list=session.query(Messages).filter(Messages.chat_id==chat_id,message_visible_to(user.id),Messages.pinned_at.isnot(None)).order_by(Messages.pinned_at.desc()).all()
     return message_list
+
+def forward_messages(session:Session,user:Users,chat_id:int,source_chat_id:int,message_ids:list[int]):
+    chat=get_chat_for_user(session, user, chat_id) #кому
+    source_chat=get_chat_for_user(session, user, source_chat_id)#откуда
+
+    messages=session.query(Messages).filter(Messages.id.in_(message_ids), message_visible_to(user.id),Messages.chat_id==source_chat_id).order_by(Messages.id.asc()).all()
+    if len(set(message_ids))!=len(messages):
+        raise HTTPException(status_code=404)
+
+    try:
+        list_of_copy_message=[]
+        for message in messages:
+
+            if message.forwarded_from_name is not None:
+                name_for_forwarded_from_name =message.forwarded_from_name
+            else:
+                author=session.get(Users,message.sender_id)
+                name_for_forwarded_from_name=author.name
+
+            copy_message=Messages(
+                chat_id=chat.id,
+                sender_id=user.id,
+                text=message.text,
+                reply_to_id=None,
+                forwarded_from_name=name_for_forwarded_from_name
+            )
+            session.add(copy_message)
+            list_of_copy_message.append(copy_message)
+        session.commit()
+
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+    return list_of_copy_message

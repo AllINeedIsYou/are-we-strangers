@@ -33,6 +33,7 @@
 .unread-divider:before,.unread-divider:after{content:'';height:1px;background:#a8002440;flex:1}
 .preparing-entry .message-row{visibility:hidden}
 .messages-scroll{overscroll-behavior-y:none}
+.messages-scroll.drag-selecting{-webkit-user-select:none;user-select:none}
 @media(min-width:761px){.bubble:not(.photo-bubble):not(.circle-bubble){max-width:min(480px,84%)}}
 .feature-fields{border:0;padding:0;margin:0;min-width:0}
 .feature-fields:disabled .stack-form{opacity:.5}

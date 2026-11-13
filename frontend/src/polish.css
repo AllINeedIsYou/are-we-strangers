@@ -17,7 +17,7 @@
 .selection-dock>.round,.selection-dock-actions>.round{width:40px;height:40px}
 .selection-dock .icon-button{padding:0;border-radius:50%}
 .selection-dock svg{width:20px;height:20px}
-.selection-count{position:absolute;left:50%;transform:translateX(-50%);padding:6px 11px;border-radius:14px;background:#181b20c4;font-size:11px;white-space:nowrap;pointer-events:none}
+.selection-count{position:absolute;left:50%;transform:translateX(-50%);padding:8px 16px;border-radius:999px;background:#181b20c4;font-size:14px;line-height:18px;white-space:nowrap;pointer-events:none}
 .selection-dock-actions{display:flex;align-items:center;gap:7px;margin-left:auto}
 .selection-dock-actions>.icon-button:not(.round){width:30px;height:30px}
 .selection-done{width:34px;height:34px;border-radius:50%;align-self:center;background:#a00022;color:#fff}
@@ -46,13 +46,20 @@
 .moment-picked .moment-entry:last-child{border:0}
 .moment-picked .moment-entry{padding:8px 0;margin:3px 0}
 .moment-picked .moment-entry p{font-size:13px;margin:6px 0}
-.delete-dialog{width:min(370px,calc(100% - 36px));padding:22px 20px;border-radius:22px}
-.delete-dialog>header{margin-bottom:18px}
-.delete-dialog>header h2{font-size:16px;line-height:1.4}
-.delete-scope{font-size:14px;gap:10px;padding:0 0 9px}
-.delete-scope input{width:21px;height:21px}
-.delete-dialog .modal-actions{margin-top:13px;gap:10px}
-.delete-dialog .modal-actions button{min-height:39px;padding:8px 12px;font-size:14px}
+.delete-dialog{width:min(360px,calc(100% - 32px));padding:20px;border:0;border-radius:22px;background:#141517;box-shadow:0 12px 38px #0004}
+.delete-dialog::backdrop{background:#0009;backdrop-filter:none;-webkit-backdrop-filter:none}
+.delete-dialog>header{justify-content:center;margin-bottom:16px}
+.delete-dialog>header h2{font-size:15px;line-height:1.4;text-align:center;letter-spacing:0}
+.delete-dialog>header>.icon-button{display:none}
+.delete-scope{display:flex;align-items:center;gap:10px;padding:2px 6px;color:#eee;font-size:14px;line-height:1.35;text-align:left;cursor:pointer}
+.delete-scope>span{min-width:0;overflow-wrap:anywhere}
+.delete-scope input{appearance:none;-webkit-appearance:none;display:grid;place-items:center;width:21px;height:21px;margin:0;border:1px solid #ffffff40;border-radius:50%;flex-shrink:0;background:#ffffff05;cursor:pointer}
+.delete-scope input:checked{background:#a50022;border-color:#a50022}
+.delete-scope input:checked::after{content:'';width:10px;height:5px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:translateY(-1px) rotate(-45deg)}
+.delete-scope input:focus-visible{outline:2px solid #f5b7c2;outline-offset:3px}
+.delete-dialog .modal-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:18px}
+.delete-dialog .modal-actions button{min-height:41px;padding:8px 12px;border-radius:999px;font-size:14px}
+.delete-dialog .secondary{background-color:#292c31bd;color:#b8b9c3}
 .composer-feedback{font-size:12px;line-height:1.4;color:#d797a2;margin:8px 50px 0;display:flex;align-items:center;gap:10px}
 .composer-feedback button{margin-left:auto;display:flex;padding:3px}
 .record-error{position:relative;left:auto;right:auto;bottom:auto;border:0;border-radius:0;background:none;padding:6px 0 0;margin:0 50px;box-shadow:none;font-size:12px}
@@ -100,18 +107,15 @@
  .selection-dock-actions{gap:2px}
  .selection-dock-actions>.icon-button:not(.round){width:28px;height:28px}
  .selection-dock-actions svg{width:18px;height:18px}
- .selection-count{font-size:10px;padding:5px 8px;left:50%}
+ .selection-count{font-size:12px;line-height:16px;padding:7px 11px}
  .is-selecting .messages-scroll{padding-right:48px}
  .is-selecting .selection-check,.is-selecting .message-row.own .selection-check{right:-33px}
  .selection-done{width:29px;height:29px}
- .delete-dialog{width:min(340px,calc(100% - 38px));padding:21px 18px}
- .delete-dialog>header h2{font-size:15px}
- .delete-scope{font-size:13px}
- .delete-dialog .modal-actions button{min-height:37px;font-size:13px}
  .record-review .voice-player{height:34px}
  .record-review .voice-wave{height:21px}
  .record-review .voice-time{font-size:9px}
  .composer-feedback,.record-error{margin-left:3px;margin-right:3px}
 }
 @media(prefers-reduced-motion:reduce){.star .star-halo{animation:none!important;opacity:.2}.record-action,.record-circle{transition:none!important;animation:none!important}}
+@media(max-width:360px){.selection-count{position:static;transform:none;margin-inline:auto}}
 .forward-dialog::backdrop{background:#0007;backdrop-filter:none;-webkit-backdrop-filter:none}
