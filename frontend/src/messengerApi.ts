@@ -1,14 +1,27 @@
 import { ApiError, apiRequest } from './authApi.ts';
-import type { Chat, Message } from './domain.ts';
+import type { Chat, Message, Moment } from './domain.ts';
 
 export type PublicUser = { id: number; name: string; username: string };
 export type ServerChat = { id: number; created_at: string; partner: PublicUser; unread_count: number };
 export type ServerMessage = { id: number; chat_id: number; sender_id: number; text: string; created_at: string; is_read: boolean; is_edited: boolean; reply_to_id: number | null; forwarded_from_name?: string | null };
 export type ReadReceipt = { reader_id: number; chat_id: number; message_ids: number[] };
 export type DeletedMessages = { actor_id: number; chat_id: number; message_ids: number[]; scope: 'self' | 'everyone' };
+type MomentCopy = { moments_id: number; source_message_id: number; author_name: string; text: string; message_created_at: string };
+export type ServerMomentCard = {
+  moment: { id: number; chat_id: number; author_id: number; reason: string; response: string | null; created_at: string };
+  messages: MomentCopy[];
+};
 export const chatKey = (id: number) => `server-${id}`;
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const date = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
+export function isMomentCard(value: unknown): value is ServerMomentCard {
+  const card = value as ServerMomentCard | null;
+  const moment = card?.moment;
+  return !!moment && positive(moment.id) && positive(moment.chat_id) && positive(moment.author_id)
+    && typeof moment.reason === 'string' && (moment.response === null || typeof moment.response === 'string') && date(moment.created_at)
+    && Array.isArray(card?.messages) && card.messages.every(copy => copy && copy.moments_id === moment.id
+      && positive(copy.source_message_id) && typeof copy.author_name === 'string' && typeof copy.text === 'string' && date(copy.message_created_at));
+}
 export function isPublicUser(value: unknown): value is PublicUser {
   const user = value as PublicUser | null;
   return !!user && positive(user.id) && typeof user.name === 'string' && typeof user.username === 'string';
@@ -45,6 +58,21 @@ export const messengerApi = {
   search: async (q: string, signal?: AbortSignal) => list(await apiRequest(`/api/user/search?${new URLSearchParams({ q: q.trim() })}`, undefined, { signal }), isPublicUser),
   chats: async (signal?: AbortSignal) => list(await apiRequest('/api/chats', undefined, { signal }), isChat),
   createChat: async (partner_id: number, signal?: AbortSignal) => checked(await apiRequest('/api/chats', { partner_id }, { signal }), isChat),
+  moments: async (chatId: number, signal?: AbortSignal) => {
+    const cards = list(await apiRequest(`/api/chats/${chatId}/moments`, undefined, { signal }), isMomentCard);
+    if (cards.some(card => card.moment.chat_id !== chatId)) throw new ApiError(0, 'Сервер вернул моменты другого чата');
+    return cards;
+  },
+  createMoment: async (chatId: number, message_ids: number[], reason: string, signal?: AbortSignal) => {
+    const card = checked(await apiRequest(`/api/chats/${chatId}/moments`, { message_ids, reason }, { signal }), isMomentCard);
+    if (card.moment.chat_id !== chatId) throw new ApiError(0, 'Сервер вернул момент другого чата');
+    return card;
+  },
+  replyToMoment: async (chatId: number, momentId: number, response: string, signal?: AbortSignal) => {
+    const card = checked(await apiRequest(`/api/chats/${chatId}/moments/${momentId}/reply`, { response }, { signal }), isMomentCard);
+    if (card.moment.chat_id !== chatId || card.moment.id !== momentId) throw new ApiError(0, 'Сервер вернул другой момент');
+    return card;
+  },
   messages: async (chatId: number, beforeId?: number, signal?: AbortSignal) => {
     const suffix = beforeId === undefined ? '' : `?before_id=${beforeId}`;
     const messages = list(await apiRequest(`/api/chats/${chatId}/messages${suffix}`, undefined, { signal }), isServerMessage);
@@ -96,6 +124,20 @@ export function toMessage(message: ServerMessage, ownId: number): Message {
     own: message.sender_id === ownId, text: message.text, read: message.is_read, edited: message.is_edited,
     replyToId: message.reply_to_id === null ? undefined : `message-${message.reply_to_id}`, forwardedFrom: message.forwarded_from_name ?? undefined,
     time: new Intl.DateTimeFormat('ru', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at)) };
+}
+export function toMoment(card: ServerMomentCard): Moment {
+  const moment = card.moment;
+  const key = chatKey(moment.chat_id);
+  const formatTime = new Intl.DateTimeFormat('ru', { hour: '2-digit', minute: '2-digit' });
+  return {
+    id: `moment-${moment.id}`, serverId: moment.id, chatId: key, authorId: moment.author_id,
+    createdAt: moment.created_at, reason: moment.reason, response: moment.response ?? undefined,
+    message: card.messages.map(copy => copy.text).join('\n'),
+    messages: card.messages.map(copy => ({
+      id: `moment-${moment.id}-copy-${copy.source_message_id}`, chatId: key, own: false,
+      text: copy.text, authorName: copy.author_name, time: formatTime.format(new Date(copy.message_created_at)),
+    })),
+  };
 }
 export function mergeMessages(previous: Message[], incoming: Message[]): Message[] {
   const messages = new Map(previous.map(message => [message.id, message]));

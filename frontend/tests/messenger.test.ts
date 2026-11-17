@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError } from '../src/authApi.ts';
-import { messengerApi, type ServerMessage } from '../src/messengerApi.ts';
+import { messengerApi, type ServerMessage, type ServerMomentCard } from '../src/messengerApi.ts';
 import { MessengerStore } from '../src/messengerStore.ts';
 
 const chat = { id: 7, created_at: '2026-11-04T00:00:00Z', partner: { id: 8, name: 'Мира', username: '@Mira' }, unread_count: 0 };
@@ -381,4 +381,46 @@ test('pins load separately from history and refresh after local or remote change
   assert.deepEqual(store.getSnapshot().pins['server-7'].map(row => row.serverId), [5]);
   sockets[0].event({type: 'messages.deleted', chat_id: 7, message_ids: [5], actor_id: 3, scope: 'self'});
   assert.deepEqual(store.getSnapshot().pins['server-7'], []);
+});
+
+test('moments merge matching HTTP and WebSocket cards without reverting a reply from a stale list', async t => {
+  const card: ServerMomentCard = {
+    moment: { id: 51, chat_id: 7, author_id: 8, created_at: chat.created_at, reason: 'Наш разговор', response: null },
+    messages: [
+      { moments_id: 51, source_message_id: 10, author_name: 'Мира', text: 'Первая копия', message_created_at: chat.created_at },
+      { moments_id: 51, source_message_id: 11, author_name: 'Саша', text: 'Вторая копия', message_created_at: chat.created_at },
+    ],
+  };
+  const updated = { ...card, moment: { ...card.moment, response: 'Помню' } };
+  const calls: Array<[string, string, unknown]> = [];
+  const h = harness({ messages: async () => [message(10), message(11)] });
+  t.mock.method(globalThis, 'fetch', async (path: string, options: RequestInit) => {
+    assert.equal(options.credentials, 'include');
+    calls.push([path, options.method!, options.body ? JSON.parse(String(options.body)) : undefined]);
+    if (options.method === 'GET') {
+      h.sockets[0].event({ type: 'moment.updated', card: updated });
+      return Response.json([card]);
+    }
+    if (path.endsWith('/reply')) {
+      h.sockets[0].event({ type: 'moment.updated', card: updated });
+      return Response.json(updated);
+    }
+    h.sockets[0].event({ type: 'moment.created', card });
+    return Response.json(card, { status: 201 });
+  });
+  t.after(() => h.store.stop());
+  h.store.start(); await tick();
+  assert.equal(await h.store.createMoment('server-7', ['message-11', 'message-10'], card.moment.reason), true);
+  assert.equal(await h.store.replyToMoment('server-7', card.moment.id, 'Помню'), true);
+  await h.store.loadMoments('server-7');
+  h.sockets[0].event({ type: 'moment.created', card });
+  const moments = h.store.getSnapshot().state.moments;
+  assert.equal(moments.length, 1);
+  assert.equal(moments[0].response, 'Помню');
+  assert.deepEqual(moments[0].messages?.map(item => item.authorName), ['Мира', 'Саша']);
+  assert.deepEqual(calls, [
+    ['/api/chats/7/moments', 'POST', { message_ids: [10, 11], reason: card.moment.reason }],
+    ['/api/chats/7/moments/51/reply', 'POST', { response: 'Помню' }],
+    ['/api/chats/7/moments', 'GET', undefined],
+  ]);
 });

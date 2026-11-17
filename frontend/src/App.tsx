@@ -7,6 +7,7 @@ import RecordingControl from './RecordingControl';
 import Avatar from './Avatar';
 import AvatarCropDialog from './AvatarCropDialog';
 import ForwardDialog from './ForwardDialog';
+import MomentCard from './MomentCard';
 import ContactProfile from './ContactProfile';
 import ConversationSearch from './ConversationSearch';
 import { animateMessageDeletion } from './deletionAnimation';
@@ -24,10 +25,17 @@ import useUserSearch from './useUserSearch';
 import type { PublicUser } from './messengerApi';
 import DevAccountSwitch from './DevAccountSwitch';
 import { findOwnChats, usesGlobalSearch } from './userSearch';
+import { findMoments } from './search';
 
 function Star({pulse=false,ambient=false}:{pulse?:boolean;ambient?:boolean}){
  const bloom=useId().replaceAll(':','');const shape='M30 0C28 46 27 51 0 54C27 57 28 62 30 108C32 62 33 57 60 54C33 51 32 46 30 0Z';
  return <svg className={`star ${pulse?'is-pulsing':''} ${ambient?'is-ambient':''}`} viewBox="0 0 60 108" aria-hidden="true"><defs><filter id={bloom} x="-150%" y="-100%" width="400%" height="300%"><feGaussianBlur stdDeviation="7"/></filter><filter id={`${bloom}-close`} x="-100%" y="-70%" width="300%" height="240%"><feGaussianBlur stdDeviation="2.5"/></filter></defs><g className="star-halo"><path d={shape} fill="white" opacity=".85" filter={`url(#${bloom}-close)`}/><path d={shape} fill="white" filter={`url(#${bloom})`}/><path d={shape} fill="white" opacity=".9" filter={`url(#${bloom})`}/></g><path className="star-core" d={shape} fill="currentColor"/></svg>;
+}
+function ChapterDivider({ title }: { title: string }) {
+  return <section className="chapter-divider" aria-label={title}>
+    <div className="chapter-rule" aria-hidden="true"><span className="chapter-star"><Star /></span></div>
+    <h2>{title}</h2>
+  </section>;
 }
 function Brand({ compact = false, pulse = false }: { compact?: boolean; pulse?: boolean }) {
   return <span className={`brand ${compact ? 'brand-compact' : ''}`}>{!compact && <Star pulse={pulse} ambient />}<span className="brand-type"><span>Are we{compact && <Star pulse={pulse} />}</span><span>strangers?</span></span></span>;
@@ -35,10 +43,10 @@ function Brand({ compact = false, pulse = false }: { compact?: boolean; pulse?: 
 function IconButton({ label, children, onClick, className = '', type = 'button', disabled = false }: { label: string; children: ReactNode; onClick?: () => void; className?: string; type?: 'submit' | 'button'; disabled?: boolean }) {
   return <button type={type} disabled={disabled} className={`icon-button ${className}`} onClick={onClick} aria-label={label}>{children}</button>;
 }
-function Modal({ title, children, onClose, className = '' }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
+function Modal({ title, children, onClose, className = '', locked = false }: { title: string; children: ReactNode; onClose: () => void; className?: string; locked?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { const node = dialog.current!; node.showModal(); node.querySelector<HTMLInputElement | HTMLTextAreaElement>('textarea,input:not([type=hidden]):not([type=checkbox])')?.focus(); return () => node.close(); }, []);
-  return <dialog ref={dialog} className={`modal glass ${className}`} onCancel={onClose} onClick={event => { if (event.target === dialog.current) onClose(); }}><header><h2>{title}</h2><IconButton label="Закрыть" onClick={onClose}><X /></IconButton></header>{children}</dialog>;
+  return <dialog ref={dialog} className={`modal glass ${className}`} onCancel={event => { if (locked) event.preventDefault(); else onClose(); }} onClick={event => { if (!locked && event.target === dialog.current) onClose(); }}><header><h2>{title}</h2><IconButton label="Закрыть" disabled={locked} onClick={onClose}><X /></IconButton></header>{children}</dialog>;
 }
 function loadDemo(userId: number) { try { return restoreState(localStorage.getItem(`${storageKey}.user.${userId}`)); } catch { return initialState(); } }
 type Panel = 'moments' | 'questions' | 'chapters';
@@ -92,7 +100,11 @@ export default function App() {
   const [historyClosing,setHistoryClosing]=useState(false);
   const historyCloseTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const [momentIds, setMomentIds] = useState<string[] | null>(null);
+  const [momentQuery, setMomentQuery] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const [momentSaving, setMomentSaving] = useState(false);
+  const [momentError, setMomentError] = useState('');
+  const momentRequest = useRef(false);
   const [messageMenu, setMessageMenu] = useState<MessageMenuTarget | null>(null);
   const [replyTo, setReplyTo] = useState<ReplySnapshot | null>(null);
   const [editing, setEditing] = useState<{ messageId: string; originalDraft: string } | null>(null);
@@ -143,7 +155,11 @@ export default function App() {
   const draft = drafts[chat.id] || '';
   const currentAttachment = attachment?.chatId === chat.id ? attachment : null;
   const momentSelected=state.messages.filter(item=>item.chatId===chat.id&&!item.kind&&momentIds?.includes(item.id));
+  const moments = state.moments.filter(moment => moment.chatId === chat.id);
+  const visibleMoments = findMoments(moments, momentQuery ?? '');
+  const momentsStatus = live.momentsStatus[chat.id];
   const history = live.history[chat.id];
+  const showFirstChapter = demoMode || (!!history && !history.loading && !history.hasOlder && !history.error);
   const sending = !demoMode && !!live.sending[chat.id];
   const olderAnchor = useRef<{ chatId: string; height: number; top: number } | null>(null);
   const draftVersions = useRef<Record<string, number>>({});
@@ -152,7 +168,7 @@ export default function App() {
   const readEntry = useReadTracking({
     viewKey: !demoMode && stage === 'chat' && (wide || mobileChat) && chat.id ? `${account?.id}:${chat.id}:${wide || mobileChat}` : '',
     chatId: chat.id, store: live.store, messages, history, scroll, conversation, followBottom,
-    obscured: !!(contactVisible || modal || panel || messageMenu || forwardIds || deleteIds || menuOpen || emojiOpen || messageSearch !== null),
+    obscured: !!(contactVisible || modal || panel || messageMenu || momentIds || forwardIds || deleteIds || menuOpen || emojiOpen || messageSearch !== null),
   });
   useDragSelection({
     scroll,
@@ -212,6 +228,10 @@ export default function App() {
     node.showModal();
     return () => node.close();
   }, [panelOpen]);
+  useEffect(() => {
+    if (panel === 'moments' && !demoMode && chat.serverId) void live.store?.loadMoments(chat.id);
+  }, [panel, demoMode, chat.id, chat.serverId, live.store]);
+  useEffect(() => { setMomentQuery(null); }, [panel, chat.id, demoMode, account?.id]);
   useLayoutEffect(() => {
     const node = scroll.current;
     if (!node) return;
@@ -255,6 +275,7 @@ export default function App() {
   }
   function selectChat(selected: string) {
     setContactOpen(false);setContactVisible(false); cancelEdit(); setReplyTo(null); setSelectedIds([]); setMessageMenu(null); setAttachment(null); fileGeneration.current += 1; setPreparingFiles(false);
+    setMomentIds(null);
     followBottom.current = demoMode; olderAnchor.current = null; setInlineError('');
     setChatId(selected); setMobileChat(true); setMessageSearch(null); setEmojiOpen(false); setMenuOpen(false); setPanel(null);
     if (!demoMode) live.store?.selectChat(selected);
@@ -396,7 +417,39 @@ export default function App() {
     });
   }
   function requestDelete(ids: string[]) { setInlineError(''); setDeleteEveryone(true); setDeleteIds(ids); }
-  function openMoment(ids: string[]) { if (!requireDemo()) return; setMomentIds(ids); setReason(''); }
+  function openMoment(ids: string[]) {
+    setMomentIds(ids);
+    setReason('');
+    setMomentError('');
+  }
+  async function submitMoment(event: FormEvent) {
+    event.preventDefault();
+    if (!momentIds || !reason.trim() || momentRequest.current || !momentSelected.length) return;
+    if (demoMode) {
+      const next = saveMoment(state, chat.id, momentIds, reason);
+      if (next === state) return;
+      setState(next);
+    } else {
+      if (!live.store) return;
+      const owner = account?.id, revision = viewRevision.current, key = chat.id;
+      const stillHere = () => ownerRef.current === owner && viewRevision.current === revision && activeChatRef.current === key;
+      momentRequest.current = true;
+      setMomentSaving(true);
+      setMomentError('');
+      try {
+        if (!await live.store.createMoment(key, momentIds, reason.trim()) || !stillHere()) return;
+      } catch (error) {
+        if (stillHere()) setMomentError(friendlyError(error));
+        return;
+      } finally {
+        momentRequest.current = false;
+        setMomentSaving(false);
+      }
+    }
+    setMomentIds(null);
+    setSelectedIds([]);
+    setPanel('moments');
+  }
   async function changePin(message: Message, pinned: boolean) {
     if (demoMode) {
       setState(previous => ({ ...previous, messages: previous.messages.map(item => item.id === message.id ? { ...item, pinned } : item) }));
@@ -570,19 +623,20 @@ export default function App() {
         <div className={`messages-scroll ${!demoMode && !readEntry.ready ? 'preparing-entry' : ''}`} ref={scroll}><div className="messages-inner">
           {!demoMode && (history?.hasOlder || history?.error) && <button className="load-history glass" disabled={history.loading} onClick={() => { void loadOlder(); }}>{history.loading ? 'Загружаем…' : history.error ? 'Повторить загрузку истории' : 'Более ранние сообщения'}</button>}
           {!demoMode && history?.error && <p className="history-error" role="alert">{history.error}</p>}
+          {showFirstChapter && <ChapterDivider title="Первое знакомство" />}
           {demoMode && <div className="date-separator"><span>Сегодня</span></div>}
           {messages.map((message, index) => {
             const original = message.replyToId ? messagesById.get(message.replyToId) : undefined;
             return <Fragment key={message.id}>
             {message.createdAt && (!messages[index - 1]?.createdAt || new Date(messages[index - 1].createdAt!).toDateString() !== new Date(message.createdAt).toDateString()) && <div className="date-separator"><span>{dayLabel(message.createdAt)}</span></div>}
             {!demoMode && readEntry.boundary === message.id && <div className="unread-divider" data-unread-boundary><span>Новые сообщения</span></div>}
-            {message.kind === 'chapter' ? <div className="chapter-divider"><span>Новая глава · {message.text}</span></div> : <MessageBubble message={message} pinned={pinnedIds.has(message.id)} quote={original ? quoteFor(original) : undefined} selected={selectedIds.includes(message.id)} selecting={selectedIds.length > 0} active={messageMenu?.message.id === message.id || highlightId === message.id} searchQuery={messageSearch||''} searchActive={searchActiveId===message.id} onMenu={setMessageMenu} onSelect={toggleSelected} onJump={jumpToMessage} />}
+            {message.kind === 'chapter' ? <ChapterDivider title={message.text} /> : <MessageBubble message={message} pinned={pinnedIds.has(message.id)} quote={original ? quoteFor(original) : undefined} selected={selectedIds.includes(message.id)} selecting={selectedIds.length > 0} active={messageMenu?.message.id === message.id || highlightId === message.id} searchQuery={messageSearch||''} searchActive={searchActiveId===message.id} onMenu={setMessageMenu} onSelect={toggleSelected} onJump={jumpToMessage} />}
             </Fragment>;
           })}
-          {messages.length === 0 && <div className="conversation-empty"><Star ambient /><p>{!demoMode && (history?.loading || live.loading) ? 'Загружаем переписку…' : messageSearch ? 'Сообщения не найдены' : 'С чего начнём разговор?'}</p></div>}
+          {messages.length === 0 && <div className="conversation-empty">{!showFirstChapter && <Star ambient />}<p>{!demoMode && (history?.loading || live.loading) ? 'Загружаем переписку…' : messageSearch ? 'Сообщения не найдены' : 'С чего начнём разговор?'}</p></div>}
         </div></div>
         <div ref={composerArea} className={`composer-area ${recordingActive?'is-recording':''}`}>
-          {selectedIds.length>0?<div className="selection-dock" aria-label="Действия с выбранными сообщениями"><IconButton label="Удалить выбранные сообщения" disabled={deleting} className="glass round" onClick={()=>requestDelete([...selectedIds])}><Trash2/></IconButton><span className="selection-count">Выбрано: {selectedIds.length}{!demoMode && selectedIds.length === 100 ? ' · максимум 100' : ''}</span><div className="selection-dock-actions"><IconButton label="Копировать выбранные сообщения" onClick={()=>void copyMessages(selectedIds)}><Copy/></IconButton><IconButton label="Сохранить выбранные сообщения в момент" disabled={!demoMode} onClick={()=>openMoment([...selectedIds])}><Bookmark/></IconButton><IconButton label="Переслать выбранные сообщения" disabled={forwarding} className="glass round" onClick={()=>openForward([...selectedIds])}><Forward/></IconButton></div></div>:<>
+          {selectedIds.length>0?<div className="selection-dock" aria-label="Действия с выбранными сообщениями"><IconButton label="Удалить выбранные сообщения" disabled={deleting} className="glass round" onClick={()=>requestDelete([...selectedIds])}><Trash2/></IconButton><span className="selection-count">Выбрано: {selectedIds.length}{!demoMode && selectedIds.length === 100 ? ' · максимум 100' : ''}</span><div className="selection-dock-actions"><IconButton label="Копировать выбранные сообщения" onClick={()=>void copyMessages(selectedIds)}><Copy/></IconButton><IconButton label="Сохранить выбранные сообщения в момент" onClick={()=>openMoment([...selectedIds])}><Bookmark/></IconButton><IconButton label="Переслать выбранные сообщения" disabled={forwarding} className="glass round" onClick={()=>openForward([...selectedIds])}><Forward/></IconButton></div></div>:<>
 
           {(replyPreview || editing) && <div className={editing ? 'composer-context' : 'composer-context composer-context-reply'}>{editing ? <SquarePen size={19} /> : <Reply size={19} />}<span><strong>{editing ? 'Редактирование сообщения' : replyPreview!.author}</strong><span>{editing ? state.messages.find(item => item.id === editing.messageId)?.text : replyPreview!.text}</span></span><IconButton label={editing ? 'Отменить редактирование' : 'Отменить ответ'} onClick={() => { cancelEdit(); setReplyTo(null); }}><X size={18} /></IconButton></div>}
           {currentAttachment && <div className="pending-media">{currentAttachment.items.map(asset => <div className="pending-item" key={asset.id}><Paperclip size={14} /><span>{asset.name}</span><IconButton label={`Убрать файл: ${asset.name}`} onClick={() => setAttachment(previous => previous ? { ...previous, items: previous.items.filter(item => item.id !== asset.id) } : null)}><X size={14} /></IconButton></div>)}</div>}
@@ -602,8 +656,27 @@ export default function App() {
         {contactVisible&&<ContactProfile key={chat.id} open={contactOpen} chat={chat} state={state} onClose={()=>setContactOpen(false)} onStory={setPanel} onCall={()=>setModal('calls')} onSearch={()=>{setContactOpen(false);setMessageSearch('');setTimeout(()=>conversation.current?.querySelector<HTMLInputElement>('.conversation-search input')?.focus(),500);}}/>}
       </section>}
       {panel && <dialog ref={historyDialog} className={`history-panel ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label="История знакомства" onCancel={event => {event.preventDefault();closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}><header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>История знакомства</h2></div><IconButton label={contactOpen?"Назад к профилю":"Закрыть историю"} onClick={closeHistory}>{contactOpen?<ArrowLeft/>:<X/>}</IconButton></header><div className="panel-tabs" role="tablist" aria-label="История знакомства">{([['moments', 'Моменты'], ['questions', 'Будущее'], ['chapters', 'Главы']] as const).map(([tab, label]) => <button key={tab} role="tab" aria-selected={panel === tab} onClick={() => setPanel(tab)}>{label}</button>)}</div><div className="panel-content">
-        <p className="panel-demo">{demoMode ? 'Демонстрация механик. Ответы собеседника моделируются вручную.' : 'Историю знакомства подключим следующим этапом. Макет доступен в режиме «Демо».'}</p><fieldset className="feature-fields" disabled={!demoMode}>
-        {panel === 'moments' && <><h3>Не потерять важное</h3><p className="muted">Сохрани сообщение и расскажи, почему оно осталось с тобой.</p>{state.moments.filter(item => item.chatId === chat.id).length === 0 && <div className="empty-state"><Bookmark /><p>Пока ни одного момента</p><span>Открой меню сообщения правой кнопкой мыши или удержанием на телефоне и выбери «Добавить момент».</span></div>}{state.moments.filter(item => item.chatId === chat.id).map(item => <article className="history-card" key={item.id}><div className="moment-entries">{item.messages?.length ? item.messages.map(entry => <div className="moment-entry" key={entry.id}><span className="eyebrow">{entry.own ? name : chat.name} · {entry.time}</span>{entry.text && <p>{entry.text}</p>}{entry.attachment && <p>{entry.attachment}</p>}{entry.media?.map(asset => <MediaView key={asset.id} asset={asset} />)}</div>) : <blockquote>{item.message}</blockquote>}</div><label className="eyebrow">ПОЧЕМУ Я ЭТО СОХРАНИЛ</label><p>{item.reason}</p>{item.response ? <><label className="eyebrow">ОТВЕТ · {chat.name.toLocaleUpperCase('ru')}</label><p>{item.response}</p></> : <form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); const response = String(data.get('response') || '').trim(); if (!response) return; setState(previous => ({ ...previous, moments: previous.moments.map(moment => moment.id === item.id ? { ...moment, response } : moment) })); }}><input className="simple-input" name="response" placeholder={`Тестовый ответ: ${chat.name}`} required maxLength={500} /><button className="text-button small-action">Добавить ответ собеседника · демо</button></form>}</article>)}</>}
+        {demoMode ? <p className="panel-demo">Демонстрация механик. Ответы собеседника моделируются вручную.</p>
+          : panel !== 'moments' && <p className="panel-demo">Этот раздел пока доступен в демо.</p>}
+        <fieldset className="feature-fields" disabled={!demoMode && panel !== 'moments'}>
+        {panel === 'moments' && <>
+          <div className="moments-heading">
+            <h3>Не забывайте важные моменты</h3>
+            <button type="button" className="icon-button glass" aria-label={momentQuery === null ? 'Открыть поиск по моментам' : 'Закрыть поиск по моментам'} aria-expanded={momentQuery !== null} onClick={() => setMomentQuery(value => value === null ? '' : null)}>
+              {momentQuery === null ? <Search size={17} /> : <X size={17} />}
+            </button>
+          </div>
+          <p className="muted">Сохрани сообщение и расскажи, почему оно осталось с тобой.</p>
+          {momentQuery !== null && <input className="simple-input moments-search" type="search" aria-label="Поиск по моментам" placeholder="Поиск по моментам" value={momentQuery} onChange={event => setMomentQuery(event.target.value)} autoFocus />}
+          {!demoMode && momentsStatus?.error && <p className="history-error" role="alert">{momentsStatus.error} <button className="text-button" onClick={() => void live.store?.loadMoments(chat.id)}>Повторить</button></p>}
+          {!moments.length && !demoMode && (!momentsStatus || momentsStatus.loading) && <p className="muted" role="status">Загружаем моменты…</p>}
+          {!moments.length && (demoMode || (momentsStatus && !momentsStatus.loading && !momentsStatus.error)) && <div className="empty-state"><Bookmark /><p>Пока ни одного момента</p><span>Открой меню сообщения правой кнопкой мыши или удержанием на телефоне и выбери «Добавить момент».</span></div>}
+          {moments.length > 0 && visibleMoments.length === 0 && <p className="muted" role="status">Совпадений нет</p>}
+          {visibleMoments.map(moment => <MomentCard key={moment.id} moment={moment} name={name} partner={chat.name} ownId={account.id} demo={demoMode} onReply={response => {
+            if (demoMode) setState(previous => ({ ...previous, moments: previous.moments.map(item => item.id === moment.id ? { ...item, response } : item) }));
+            else if (moment.serverId) return live.store?.replyToMoment(chat.id, moment.serverId, response);
+          }} />)}
+        </>}
         {panel === 'questions' && <><h3>Спросить нас будущих</h3><p className="muted">Один вопрос, два ответа. Вернётесь к нему в выбранный день.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); const opens = String(new FormData(event.currentTarget).get('opens') || ''); if (!question.trim() || !opens) return; setState(previous => ({ ...previous, questions: [...previous.questions, { id: id(), chatId: chat.id, text: question.trim(), date: opens, answer: '' }] })); setQuestion(''); setQuestionDate(''); }}><label>Наш вопрос<textarea value={question} onChange={event => setQuestion(event.target.value)} placeholder="Какими мы будем через год?" required maxLength={500} /></label><label>Когда открыть<input type="date" name="opens" value={questionDate} min={new Date().toLocaleDateString('en-CA')} onChange={event => setQuestionDate(event.target.value)} required /></label><button className="primary">Оставить на будущее</button></form>{state.questions.filter(item => item.chatId === chat.id).map(item => <article className="history-card" key={item.id}><span className="eyebrow">{new Date(`${item.date}T12:00:00`).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })}</span><h3>{item.text}</h3>{item.date > new Date().toLocaleDateString('en-CA') ? <p className="muted"><Clock3 size={16} /> Встретимся с этим вопросом позже.</p> : <><AnswerForm label="Твой ответ" value={item.answer} onSave={answer => setState(previous => ({ ...previous, questions: previous.questions.map(q => q.id === item.id ? { ...q, answer } : q) }))} /><AnswerForm label={`Ответ: ${chat.name} · демо`} value={item.otherAnswer || ''} onSave={otherAnswer => setState(previous => ({ ...previous, questions: previous.questions.map(q => q.id === item.id ? { ...q, otherAnswer } : q) }))} /></>}</article>)}</>}
         {panel === 'chapters' && <><h3>Давай начнём заново</h3><p className="muted">Новая глава начинается, когда вы оба согласны. Всё, что было до неё, остаётся.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); if (!chapterTitle.trim()) return; setState(previous => ({ ...previous, chapters: [...previous.chapters, { id: id(), chatId: chat.id, title: chapterTitle.trim(), status: 'pending' }] })); setChapterTitle(''); }}><label>Название главы<input value={chapterTitle} onChange={event => setChapterTitle(event.target.value)} placeholder="Чуть ближе" maxLength={70} required /></label><button className="primary">Предложить новую главу</button></form>{state.chapters.filter(item => item.chatId === chat.id).map(item => <article className="history-card" key={item.id}><span className="eyebrow">{item.status === 'pending' ? 'ЖДЁМ СОГЛАСИЯ' : 'НОВАЯ ГЛАВА'}</span><h3>{item.title}</h3>{item.status === 'pending' ? <button className="secondary" onClick={() => { setState(previous => acceptChapter(previous, item.id));  }}>Смоделировать согласие {chat.name}</button> : <p className="muted">Вы решили продолжить с новой страницы.</p>}</article>)}</>}
       </fieldset></div></dialog>}
@@ -613,7 +686,20 @@ export default function App() {
     {deleteIds && <Modal className="delete-dialog" title={deleteIds.length > 1 ? `Удалить выбранные сообщения (${deleteIds.length})?` : 'Удалить выбранное сообщение?'} onClose={() => { if (!deleting) setDeleteIds(null); }}>{!demoMode && inlineError && <p className="history-error" role="alert">{inlineError}</p>}<label className="delete-scope"><input type="checkbox" disabled={deleting} checked={deleteEveryone} onChange={event => setDeleteEveryone(event.target.checked)} /><span>Удалить у меня и у «{chat.name}»</span></label><div className="modal-actions"><button className="secondary glass" disabled={deleting} onClick={() => setDeleteIds(null)}>Отмена</button><button className="primary" disabled={deleting} onClick={()=>{void confirmDelete();}}>{deleting ? 'Удаляем…' : 'Удалить'}</button></div></Modal>}
 
     {modal === 'pinned' && <Modal title="Закреплённые сообщения" onClose={closeModal}>{pinned.length === 0 && <p className="muted">Закреплённых сообщений пока нет.</p>}{pinned.map(item => <div className="pinned-entry" key={item.id}><button className="pinned-choice" onClick={() => { closeModal(); void jumpToPin(item); }}><Pin size={16} /><span>{messageSummary(item)}</span><time>{item.time}</time></button><IconButton label={`Открепить: ${messageSummary(item)}`} disabled={!demoMode && live.pinBusy[chat.id]} onClick={() => { void changePin(item, false); }}><PinOff size={18} /></IconButton></div>)}</Modal>}
-    {momentIds&&<Modal className="moment-dialog" title="Сохранить момент" onClose={()=>setMomentIds(null)}><p className="muted">Выбрано сообщений: {momentSelected.length}</p><div className="moment-picked">{momentSelected.map(message=><article className="moment-entry" key={message.id}><span className="eyebrow">{message.own?'Вы':chat.name} · {message.time}</span>{message.text&&<p>{message.text}</p>}{message.media?.map(asset=><MediaView key={asset.id} asset={asset}/>)}</article>)}</div><form className="stack-form" onSubmit={event=>{event.preventDefault();const next=saveMoment(state,chat.id,momentIds,reason);if(next===state)return;setState(next);setMomentIds(null);setSelectedIds([]);setPanel('moments');}}><label>Почему я это сохранил<textarea value={reason} onChange={event=>setReason(event.target.value)} placeholder="В этот момент мы стали немного ближе" required maxLength={1000}/></label><button className="primary" disabled={!momentSelected.length}>Сохранить момент · {momentSelected.length}</button></form></Modal>}
+    {momentIds && <Modal className="moment-dialog" title="Сохранить момент" locked={momentSaving} onClose={() => setMomentIds(null)}>
+      <p className="muted">Выбрано сообщений: {momentSelected.length}</p>
+      <div className="moment-picked">{momentSelected.map(message => <article className="moment-entry" key={message.id}>
+        <span className="eyebrow">{message.forwardedFrom || (message.own ? 'Вы' : chat.name)} · {message.time}</span>
+        {message.text && <p>{message.text}</p>}
+        {message.media?.map(asset => <MediaView key={asset.id} asset={asset} />)}
+      </article>)}</div>
+      <form className="stack-form" onSubmit={submitMoment}>
+        <label>Почему я это сохранил<textarea value={reason} onChange={event => setReason(event.target.value)} placeholder="В этот момент мы стали немного ближе" required maxLength={1000} disabled={momentSaving} /></label>
+        {momentError && <p className="inline-error" role="alert">{momentError}</p>}
+        <p id="moment-save-warning" className="moment-save-warning">Сохраняйте моменты вдумчиво. Их нельзя удалить или изменить.</p>
+        <button className="primary" aria-describedby="moment-save-warning" disabled={momentSaving || !momentSelected.length || !reason.trim()}>{momentSaving ? 'Сохраняем…' : 'Сохранить момент'}</button>
+      </form>
+    </Modal>}
     {modal === 'settings' && account && <Modal title="Настройки" onClose={closeModal}>
       <AccountSettings user={account} onUpdate={acceptUser} onExpired={clearUser} />
       <p className="muted">Поиск, чаты и текстовые сообщения подключены к серверу. Медиа и история знакомства пока доступны в демо.</p>

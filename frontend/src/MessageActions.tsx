@@ -57,7 +57,7 @@ export function MessageContextMenu({live = false, pinned = false, pinBusy = fals
     return () => element.close();
   }, [target]);
   function item(label: string, icon: ReactNode, action: () => void, danger = false) {
-    const demoOnly = live && !['Ответить', 'Копировать текст', 'Выбрать', 'Изменить', 'Удалить', 'Закрепить', 'Открепить'].includes(label);
+    const demoOnly = live && !['Ответить', 'Копировать текст', 'Выбрать', 'Изменить', 'Удалить', 'Закрепить', 'Открепить', 'Добавить момент'].includes(label);
     const disabled = demoOnly || (pinBusy && (label === 'Закрепить' || label === 'Открепить'));
     return <button role="menuitem" disabled={disabled} title={demoOnly ? 'Пока доступно в демо' : undefined} className={danger ? 'danger' : ''} onClick={() => { onClose(); action(); }}>{icon}<span>{label}</span>{label === 'Переслать' && <ChevronRight className="context-chevron" />}</button>;
   }

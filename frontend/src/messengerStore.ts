@@ -1,13 +1,14 @@
 import { ApiError, friendlyError } from './authApi.ts';
-import { chatKey, isDeletedMessages, isReadReceipt, isServerMessage, mergeMessages, messengerApi, toChat, toMessage, type DeletedMessages, type ReadReceipt, type ServerChat, type ServerMessage } from './messengerApi.ts';
+import { chatKey, isDeletedMessages, isMomentCard, isReadReceipt, isServerMessage, mergeMessages, messengerApi, toChat, toMessage, toMoment, type DeletedMessages, type ReadReceipt, type ServerChat, type ServerMessage, type ServerMomentCard } from './messengerApi.ts';
 import type { DemoState, Message } from './domain.ts';
 
 type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'offline';
 type HistoryStatus = { loading: boolean; hasOlder: boolean; error: string };
+type MomentsStatus = { loading: boolean; error: string };
 export type MessengerSnapshot = { state: DemoState; loading: boolean; error: string; connection: ConnectionStatus;
-  history: Record<string, HistoryStatus>; sending: Record<string, boolean>; pins: Record<string, Message[]>; pinBusy: Record<string, boolean> };
+  history: Record<string, HistoryStatus>; sending: Record<string, boolean>; pins: Record<string, Message[]>; pinBusy: Record<string, boolean>; momentsStatus: Record<string, MomentsStatus> };
 const emptyState = (): DemoState => ({ chats: [], messages: [], moments: [], questions: [], chapters: [] });
-export const emptySnapshot = (): MessengerSnapshot => ({ state: emptyState(), loading: true, error: '', connection: 'connecting', history: {}, sending: {}, pins: {}, pinBusy: {} });
+export const emptySnapshot = (): MessengerSnapshot => ({ state: emptyState(), loading: true, error: '', connection: 'connecting', history: {}, sending: {}, pins: {}, pinBusy: {}, momentsStatus: {} });
 type Options = { api?: typeof messengerApi; connect?: () => WebSocket; onExpired: () => void; onIncoming: (chatId: string) => void; onDelete?: (ids: string[], signal: AbortSignal) => Promise<void> };
 
 // Only confirmed server messages enter this store. POST and WS merge by the same ID.
@@ -32,6 +33,7 @@ export class MessengerStore {
   private syncedThrough = new Map<number, number>();
   private selectedChat = '';
   private pinRequests = new Map<string, symbol>();
+  private momentRequests = new Set<string>();
   private sequence = 0;
   private versions = new Map<number, number>();
   private readIds = new Set<number>();
@@ -68,6 +70,7 @@ export class MessengerStore {
     for (const animation of this.deletionAnimations.values()) animation.abort.abort();
     this.deletionAnimations.clear();
     this.pinRequests.clear();
+    this.momentRequests.clear();
     const socket = this.socket; this.socket = null;
     if (socket) { socket.onclose = null; socket.onerror = null; socket.onmessage = null; socket.close(); }
   }
@@ -93,6 +96,7 @@ export class MessengerStore {
         // Refresh after subscribing: messages written during the handshake are recovered from history.
         void this.refresh();
         void this.loadPins(this.selectedChat);
+        if (this.snapshot.momentsStatus[this.selectedChat]) void this.loadMoments(this.selectedChat);
         this.heartbeat = setInterval(() => {
           if (!valid() || socket.readyState !== 1) return;
           try {
@@ -105,6 +109,7 @@ export class MessengerStore {
       else if (data.type === 'messages.read' && isReadReceipt(data)) this.receiveRead(data);
       else if (data.type === 'message.updated' && 'message' in data && isServerMessage(data.message)) this.receiveEdit(data.message);
       else if (data.type === 'messages.deleted' && isDeletedMessages(data)) void this.receiveDelete(data);
+      else if ((data.type === 'moment.created' || data.type === 'moment.updated') && 'card' in data && isMomentCard(data.card)) this.mergeMoments([data.card]);
       else if (data.type === 'chat.pins_changed' && 'chat_id' in data && typeof data.chat_id === 'number') {
         const key = chatKey(data.chat_id);
         if (key === this.selectedChat || this.snapshot.pins[key]) void this.loadPins(key);
@@ -134,6 +139,71 @@ export class MessengerStore {
     if (!this.socket) this.connect();
     void this.refresh();
     void this.loadPins(this.selectedChat);
+    if (this.snapshot.momentsStatus[this.selectedChat]) void this.loadMoments(this.selectedChat);
+  };
+  private mergeMoments(cards: ServerMomentCard[]) {
+    if (!cards.length) return;
+    const moments = new Map(this.snapshot.state.moments.map(moment => [moment.id, moment]));
+    for (const card of cards) {
+      const moment = toMoment(card);
+      const previous = moments.get(moment.id);
+      // A delayed GET or creation response can arrive after the one allowed reply.
+      if (previous?.response !== undefined && moment.response === undefined) continue;
+      moments.set(moment.id, moment);
+    }
+    this.update({ state: { ...this.snapshot.state, moments: [...moments.values()].sort((a, b) =>
+      Date.parse(b.createdAt!) - Date.parse(a.createdAt!) || b.serverId! - a.serverId!,
+    ) } });
+  }
+  loadMoments = async (key: string) => {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!chatId || !this.active || this.momentRequests.has(key)) return;
+    const epoch = this.epoch;
+    const status = (loading: boolean, error = '') => this.update({ momentsStatus: { ...this.snapshot.momentsStatus, [key]: { loading, error } } });
+    this.momentRequests.add(key);
+    status(true);
+    try {
+      const cards = await this.api.moments(chatId, this.abort.signal);
+      if (!this.current(epoch)) return;
+      this.mergeMoments(cards);
+      status(false);
+    } catch (error) {
+      if (!this.current(epoch)) return;
+      status(false, friendlyError(error));
+      if (error instanceof ApiError && error.status === 401) this.handleError(error, epoch);
+    } finally {
+      if (this.current(epoch)) this.momentRequests.delete(key);
+    }
+  };
+  private async saveMoment(key: string, request: (signal: AbortSignal) => Promise<ServerMomentCard>) {
+    const epoch = this.epoch;
+    try {
+      const card = await request(this.abort.signal);
+      if (!this.current(epoch)) return false;
+      this.mergeMoments([card]);
+      return true;
+    } catch (error) {
+      if (!this.current(epoch)) return false;
+      if (error instanceof ApiError && error.status === 401) this.handleError(error, epoch);
+      else void this.loadMoments(key);
+      throw error;
+    }
+  }
+  createMoment = async (key: string, ids: string[], reason: string) => {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!chatId || !this.active) return false;
+    const selected = new Set(ids);
+    const messageIds = this.snapshot.state.messages.flatMap(message =>
+      message.chatId === key && selected.has(message.id) && message.serverId && !this.hiddenIds.has(message.serverId) ? [message.serverId] : [],
+    );
+    if (!selected.size || selected.size > 100) throw new ApiError(422, 'Выбери от 1 до 100 сообщений');
+    if (messageIds.length !== selected.size) throw new ApiError(404, 'Одно или несколько сообщений недоступны');
+    return this.saveMoment(key, signal => this.api.createMoment(chatId, messageIds, reason, signal));
+  };
+  replyToMoment = async (key: string, momentId: number, response: string) => {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!chatId || !this.active) return false;
+    return this.saveMoment(key, signal => this.api.replyToMoment(chatId, momentId, response, signal));
   };
   private upsertChats(chats: ServerChat[], replace = false) {
     const known = new Map(this.snapshot.state.chats.map(chat => [chat.id, chat]));

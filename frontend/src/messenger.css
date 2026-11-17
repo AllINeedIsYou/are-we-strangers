@@ -29,6 +29,17 @@
 .conversation-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
 .conversation-empty>.star{width:30px;height:54px;margin:0;color:#f7f6f4;filter:none;animation:none}
 .conversation-empty>p{margin:0}
+.chapter-divider{align-self:stretch;flex-shrink:0;margin:16px 0 19px;text-align:center}
+.chapter-divider h2{margin:1px 0 0;color:#e9dee1;font-size:14px;line-height:1.4;font-weight:500;overflow-wrap:anywhere}
+.chapter-rule{display:flex;align-items:center;gap:11px}
+.chapter-rule::before,.chapter-rule::after{content:'';flex:1;height:1px;background:linear-gradient(to right,#4a1421,#b23b58)}
+.chapter-rule::after{background:linear-gradient(to left,#4a1421,#b23b58)}
+.chapter-star{position:relative;display:grid;place-items:center;width:18px;height:32px;color:#fff3f5}
+.chapter-star>.star{position:relative;z-index:1;width:18px;height:32px;margin:0;filter:drop-shadow(0 0 2px #ffb9c9)}
+.chapter-star .star-core{fill:currentColor}
+.chapter-star::before{content:'';position:absolute;width:34px;height:34px;background:radial-gradient(ellipse,#ff677ca6,#e721443f 38%,transparent 70%);animation:chapter-glow 3s ease-in-out infinite}
+@keyframes chapter-glow{0%,100%{opacity:.18;transform:scale(.78)}50%{opacity:.92;transform:scale(1.15)}}
+@media(prefers-reduced-motion:reduce){.chapter-star::before{animation:none;opacity:.32}}
 .unread-divider{display:flex;align-items:center;justify-content:center;gap:16px;flex-shrink:0;margin:14px 0;color:#c6919a;font-size:11px;letter-spacing:.04em}
 .unread-divider:before,.unread-divider:after{content:'';height:1px;background:#a8002440;flex:1}
 .preparing-entry .message-row{visibility:hidden}

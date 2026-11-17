@@ -1,4 +1,4 @@
-import type { Message } from './domain';
+import type { Message, Moment } from './domain';
 
 export function splitSearchText(text: string, query: string): { text: string; match: boolean }[] {
   const term = query.trim();
@@ -18,4 +18,13 @@ export function splitSearchText(text: string, query: string): { text: string; ma
 export function findMessages(messages: Message[], query: string): Message[] {
   if (!query.trim()) return [];
   return messages.filter(message => !message.kind && splitSearchText(message.text || message.attachment || '', query).some(part => part.match)).reverse();
+}
+
+export function findMoments(moments: Moment[], query: string): Moment[] {
+  const words = query.trim().toLocaleLowerCase('ru').split(/\s+/).filter(Boolean);
+  if (!words.length) return moments;
+  return moments.filter(moment => {
+    const text = [moment.message, moment.reason, moment.response].join('\n').toLocaleLowerCase('ru');
+    return words.every(word => text.includes(word));
+  });
 }

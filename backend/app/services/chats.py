@@ -82,3 +82,10 @@ def get_unread_counts(session:Session,user:Users,list_chats:list[int]):
                                                                         message_visible_to(user.id),
                                                                         Messages.is_read.is_(False)).group_by(Messages.chat_id).all()
     return dict(rows)
+
+def get_users_by_chat(session:Session,user:Users,chat_id:int):
+    chat=get_chat_for_user(session, user, chat_id)
+    currentuser=chat.first_user_id if chat.first_user_id==user.id else chat.second_user_id
+    partner=chat.first_user_id if chat.first_user_id!=user.id else chat.second_user_id
+
+    return currentuser,partner
