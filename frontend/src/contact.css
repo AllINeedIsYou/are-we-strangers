@@ -86,9 +86,9 @@
 .profile-media-preview .photo-media{display:block}
 .profile-media-preview .photo-media img,.profile-media-preview .video-media{width:100%;max-height:72dvh;object-fit:contain}
 /* The next profile page hosts the existing history mechanics. */
-.profile-history{width:calc(100% - clamp(280px,24vw,340px));background:#0b0b0e;animation:profile-history-in .36s cubic-bezier(.22,.72,.2,1);border:0}
+.profile-history{background:#0b0b0e;animation:profile-history-in .36s cubic-bezier(.22,.72,.2,1);border:0}
 .profile-history::backdrop{background:transparent;backdrop-filter:none}
-.profile-history>header,.profile-history>.panel-tabs,.profile-history>.panel-content{width:min(500px,100%);margin:0 auto}
+.profile-history>header,.profile-history>.panel-tabs,.profile-history>.panel-content{width:100%;margin:0 auto}
 .profile-history>header{flex-direction:row-reverse;padding-top:25px;justify-content:flex-end}
 .profile-history>header>div{flex:1;margin-left:7px}
 .profile-history>header h2{font-size:22px}
@@ -100,6 +100,28 @@
 /* A permanent white core with a stronger, slowly breathing halo. */
 .star.is-ambient .star-halo{animation:star-breathe-bright 3s cubic-bezier(.45,0,.55,1) infinite}
 @keyframes star-breathe-bright{0%,100%{opacity:.1}50%{opacity:1}}
+@media(min-width:761px){
+ .history-panel{width:calc(100% - var(--desktop-chat-list-width,292px))}
+ .history-panel>header,.history-panel>.panel-tabs,.history-panel>.panel-content{width:min(780px,calc(100% - 32px));margin-inline:auto}
+ .profile-topbar{height:64px;padding:12px}
+ .profile-topbar>button{width:40px;height:40px}
+ .profile-topbar svg{width:21px;height:21px}
+ .profile-content{width:min(600px,calc(100% - 32px));margin-top:-36px}
+ .profile-hero>.avatar{width:120px;height:120px;font-size:56px;margin-bottom:12px}
+ .profile-hero h1{font-size:18px;line-height:23px;margin-bottom:6px}
+ .profile-hero p{font-size:13px;line-height:18px}
+ .profile-actions{gap:clamp(8px,1.2vw,21px);margin:15px clamp(0px,calc((100vw - 900px)*.06),15px) 20px}
+ .profile-actions button{height:66px;border-radius:20px;gap:6px}
+ .profile-actions svg{width:22px;height:22px}
+ .profile-actions span{font-size:13px}
+ .profile-details{border-radius:20px;margin-bottom:12px}
+ .profile-details-panels{padding-inline:14px}
+ .profile-field{min-height:57px;padding:10px 0}
+ .profile-field-label{font-size:12px}
+ .profile-tabs{min-height:40px;border-radius:22px}
+ .profile-tabs button{font-size:13px;padding-inline:6px}
+ .profile-media-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:1px}
+}
 @media(max-width:760px){
  .profile-history{width:100%}
  .profile-topbar{height:58px;padding:10px 14px}

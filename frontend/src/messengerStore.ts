@@ -1,14 +1,15 @@
 import { ApiError, friendlyError } from './authApi.ts';
-import { chatKey, isDeletedMessages, isMomentCard, isReadReceipt, isServerMessage, mergeMessages, messengerApi, toChat, toMessage, toMoment, type DeletedMessages, type ReadReceipt, type ServerChat, type ServerMessage, type ServerMomentCard } from './messengerApi.ts';
+import { chatKey, isDeletedMessages, isFutureQuestionEvent, isMomentCard, isReadReceipt, isServerMessage, mergeMessages, messengerApi, toChat, toMessage, toMoment, type DeletedMessages, type ReadReceipt, type ServerChat, type ServerFutureQuestion, type ServerMessage, type ServerMomentCard } from './messengerApi.ts';
 import type { DemoState, Message } from './domain.ts';
 
 type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'offline';
 type HistoryStatus = { loading: boolean; hasOlder: boolean; error: string };
 type MomentsStatus = { loading: boolean; error: string };
+type QuestionList = { cards: ServerFutureQuestion[]; loading: boolean; error: string };
 export type MessengerSnapshot = { state: DemoState; loading: boolean; error: string; connection: ConnectionStatus;
-  history: Record<string, HistoryStatus>; sending: Record<string, boolean>; pins: Record<string, Message[]>; pinBusy: Record<string, boolean>; momentsStatus: Record<string, MomentsStatus> };
+  history: Record<string, HistoryStatus>; sending: Record<string, boolean>; pins: Record<string, Message[]>; pinBusy: Record<string, boolean>; momentsStatus: Record<string, MomentsStatus>; questions: Partial<Record<string, QuestionList>> };
 const emptyState = (): DemoState => ({ chats: [], messages: [], moments: [], questions: [], chapters: [] });
-export const emptySnapshot = (): MessengerSnapshot => ({ state: emptyState(), loading: true, error: '', connection: 'connecting', history: {}, sending: {}, pins: {}, pinBusy: {}, momentsStatus: {} });
+export const emptySnapshot = (): MessengerSnapshot => ({ state: emptyState(), loading: true, error: '', connection: 'connecting', history: {}, sending: {}, pins: {}, pinBusy: {}, momentsStatus: {}, questions: {} });
 type Options = { api?: typeof messengerApi; connect?: () => WebSocket; onExpired: () => void; onIncoming: (chatId: string) => void; onDelete?: (ids: string[], signal: AbortSignal) => Promise<void> };
 
 // Only confirmed server messages enter this store. POST and WS merge by the same ID.
@@ -34,6 +35,7 @@ export class MessengerStore {
   private selectedChat = '';
   private pinRequests = new Map<string, symbol>();
   private momentRequests = new Set<string>();
+  private questionRequests = new Map<string, boolean>();
   private sequence = 0;
   private versions = new Map<number, number>();
   private readIds = new Set<number>();
@@ -71,6 +73,7 @@ export class MessengerStore {
     this.deletionAnimations.clear();
     this.pinRequests.clear();
     this.momentRequests.clear();
+    this.questionRequests.clear();
     const socket = this.socket; this.socket = null;
     if (socket) { socket.onclose = null; socket.onerror = null; socket.onmessage = null; socket.close(); }
   }
@@ -97,6 +100,7 @@ export class MessengerStore {
         void this.refresh();
         void this.loadPins(this.selectedChat);
         if (this.snapshot.momentsStatus[this.selectedChat]) void this.loadMoments(this.selectedChat);
+        if (this.snapshot.questions[this.selectedChat]) void this.loadFutureQuestions(this.selectedChat);
         this.heartbeat = setInterval(() => {
           if (!valid() || socket.readyState !== 1) return;
           try {
@@ -110,6 +114,10 @@ export class MessengerStore {
       else if (data.type === 'message.updated' && 'message' in data && isServerMessage(data.message)) this.receiveEdit(data.message);
       else if (data.type === 'messages.deleted' && isDeletedMessages(data)) void this.receiveDelete(data);
       else if ((data.type === 'moment.created' || data.type === 'moment.updated') && 'card' in data && isMomentCard(data.card)) this.mergeMoments([data.card]);
+      else if ((data.type === 'future_question.created' || data.type === 'future_question.updated') && isFutureQuestionEvent(data)) {
+        const key = chatKey(data.chat_id);
+        if (this.snapshot.questions[key]) void this.loadFutureQuestions(key);
+      }
       else if (data.type === 'chat.pins_changed' && 'chat_id' in data && typeof data.chat_id === 'number') {
         const key = chatKey(data.chat_id);
         if (key === this.selectedChat || this.snapshot.pins[key]) void this.loadPins(key);
@@ -140,7 +148,70 @@ export class MessengerStore {
     void this.refresh();
     void this.loadPins(this.selectedChat);
     if (this.snapshot.momentsStatus[this.selectedChat]) void this.loadMoments(this.selectedChat);
+    if (this.snapshot.questions[this.selectedChat]) void this.loadFutureQuestions(this.selectedChat);
   };
+  private updateQuestions(key: string, patch: Partial<QuestionList>) {
+    const previous = this.snapshot.questions[key] ?? { cards: [], loading: false, error: '' };
+    this.update({ questions: { ...this.snapshot.questions, [key]: { ...previous, ...patch } } });
+  }
+  private mergeQuestions(key: string, incoming: ServerFutureQuestion[]) {
+    const cards = new Map(this.snapshot.questions[key]?.cards.map(card => [card.id, card]));
+    for (const card of incoming) {
+      const previous = cards.get(card.id);
+      // Answers are immutable. A list request started earlier can still return null.
+      cards.set(card.id, {
+        ...card, my_answer: card.my_answer ?? previous?.my_answer ?? null,
+        partner_answer: card.partner_answer ?? previous?.partner_answer ?? null,
+      });
+    }
+    this.updateQuestions(key, { cards: [...cards.values()].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id) });
+  }
+  loadFutureQuestions = async (key: string) => {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!chatId || !this.active) return;
+    if (this.questionRequests.has(key)) {
+      this.questionRequests.set(key, true);
+      return;
+    }
+    const epoch = this.epoch;
+    this.questionRequests.set(key, false);
+    this.updateQuestions(key, { loading: true, error: '' });
+    try {
+      const cards = await this.api.futureQuestions(chatId, this.abort.signal);
+      if (this.current(epoch)) this.mergeQuestions(key, cards);
+    } catch (error) {
+      if (!this.current(epoch)) return;
+      if (error instanceof ApiError && error.status === 401) this.handleError(error, epoch);
+      else this.updateQuestions(key, { error: friendlyError(error) });
+    } finally {
+      if (this.current(epoch)) {
+        const refresh = this.questionRequests.get(key);
+        this.questionRequests.delete(key);
+        if (refresh) void this.loadFutureQuestions(key);
+        else this.updateQuestions(key, { loading: false });
+      }
+    }
+  };
+  private async saveFutureQuestion(key: string, request: (chatId: number, signal: AbortSignal) => Promise<ServerFutureQuestion>) {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!chatId || !this.active) return false;
+    const epoch = this.epoch;
+    try {
+      const card = await request(chatId, this.abort.signal);
+      if (!this.current(epoch)) return false;
+      this.mergeQuestions(key, [card]);
+      return true;
+    } catch (error) {
+      if (!this.current(epoch)) return false;
+      if (error instanceof ApiError && error.status === 401) this.handleError(error, epoch);
+      else void this.loadFutureQuestions(key);
+      throw error;
+    }
+  }
+  createFutureQuestion = (key: string, text: string, opensAt: string) =>
+    this.saveFutureQuestion(key, (chatId, signal) => this.api.createFutureQuestion(chatId, text, opensAt, signal));
+  answerFutureQuestion = (key: string, id: number, text: string) =>
+    this.saveFutureQuestion(key, (chatId, signal) => this.api.answerFutureQuestion(chatId, id, text, signal));
   private mergeMoments(cards: ServerMomentCard[]) {
     if (!cards.length) return;
     const moments = new Map(this.snapshot.state.moments.map(moment => [moment.id, moment]));

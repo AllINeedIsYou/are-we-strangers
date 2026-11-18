@@ -1,5 +1,4 @@
-.messenger-mode{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 18px 10px;color:#8c8c94;font-size:11px;min-height:28px}
-.messenger-mode button{color:#c8c8ce;padding:4px 8px;border:1px solid #ffffff1a;border-radius:20px;flex-shrink:0}
+.messenger-mode{display:flex;align-items:center;padding:0 18px 10px;color:#8c8c94;font-size:11px;min-height:28px}
 .dev-account-switch{margin:0 14px 10px}
 .dev-account-switch>button{display:flex;align-items:center;gap:8px;width:100%;border-radius:16px;padding:9px 11px;font-size:11px;color:#d0c4c7}
 .dev-account-switch small{margin-left:auto;font-size:8px;letter-spacing:.05em;color:#a36c78}
@@ -40,6 +39,59 @@
 .chapter-star::before{content:'';position:absolute;width:34px;height:34px;background:radial-gradient(ellipse,#ff677ca6,#e721443f 38%,transparent 70%);animation:chapter-glow 3s ease-in-out infinite}
 @keyframes chapter-glow{0%,100%{opacity:.18;transform:scale(.78)}50%{opacity:.92;transform:scale(1.15)}}
 @media(prefers-reduced-motion:reduce){.chapter-star::before{animation:none;opacity:.32}}
+.future-question-notice{align-self:center;flex-shrink:0;width:min(350px,100%);margin:14px 0 6px;padding:10px 14px 12px;border:1px solid #6f273a;border-radius:16px;background:linear-gradient(120deg,#250f17,#171215);color:#eee9eb;text-align:center}
+.future-question-notice-star{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:3px;color:#f2b1c0}
+.future-question-notice-star::before,.future-question-notice-star::after{content:'';width:34px;height:1px;background:#783245}
+.future-question-notice-star .star{width:14px;height:23px;margin:0;filter:drop-shadow(0 0 6px #ec476a)}
+.future-question-notice-star .star-core{fill:currentColor}
+.future-question-notice>span{display:block;color:#ea99ac;font-size:11px;letter-spacing:.07em;text-transform:uppercase}
+.future-question-notice>p{margin:4px 0 0;font-size:15px;overflow-wrap:anywhere}
+.future-question-notice .primary{min-height:36px;margin-top:8px;padding:7px 15px;border:1px solid #96233e;border-radius:999px;background:#6e1228;color:#fff5f7;font-size:13px}
+.future-question-notice .primary:hover{background:#881b35}
+.future-question-notice .moment-reply{margin-top:10px}
+.future-question-notice .moment-reply-field .simple-input{background:#1b1216;font-size:16px}
+.future-question-cancel{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:32px;margin-top:4px;padding:0 10px;color:#deb2bd;font-size:13px}
+.future-question-cancel:hover{color:#fff5f7}
+.future-question-accepted{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:10px;color:#f2b1c0;font-size:13px}
+.future-question-answers{margin-top:12px;text-align:left}
+.future-question-answers .moment-note{background:#0c090c4d}
+.future-question-answers p{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(pointer:coarse){.future-question-notice .primary{min-height:44px}}
+.question-date-field{display:grid;gap:9px;min-width:0}
+.future-questions-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.future-questions-heading h3{margin:0}
+.future-questions-heading .icon-button{width:44px;height:44px;flex-shrink:0}
+.future-questions-heading svg{width:22px;height:22px;transition:transform .25s var(--ease)}
+.future-questions-heading button[aria-expanded=true] svg{transform:rotate(45deg)}
+.future-question-disclosure{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;transition:grid-template-rows .28s var(--ease),opacity .2s ease,visibility 0s .28s}
+.future-question-disclosure.is-expanded{grid-template-rows:1fr;opacity:1;visibility:visible;transition-delay:0s}
+.future-question-disclosure>div{min-height:0;overflow:hidden;padding-inline:2px;margin-inline:-2px}
+.future-question-disclosure .stack-form{gap:14px;margin:14px 0 4px}
+.future-question-group{margin-top:22px}
+.future-question-group.is-upcoming:not(:first-child){border-top:1px solid var(--line);padding-top:20px;margin-top:26px}
+.future-question-group h4{margin:0;color:#bfb5bc;font-size:13px;font-weight:500}
+.future-question-group .history-card{margin-top:10px}
+@media(prefers-reduced-motion:reduce){.future-question-disclosure,.future-questions-heading svg{transition:none}}
+.question-date-label{font-size:12px;color:#a4a4ac}
+.question-date-trigger{display:flex;align-items:center;gap:10px;text-align:left;min-height:46px;width:100%;padding:10px 13px;border:1px solid #ffffff26;border-radius:12px;background:#ffffff04;color:#f1edf0;font-size:15px}
+.question-date-trigger:not(:disabled):hover,.question-date-trigger[aria-expanded=true]{border-color:#a62540;background:#201217}
+.question-date-trigger>svg:first-child{color:#ef839b;flex-shrink:0}
+.question-date-trigger>svg:last-child{margin-left:auto;color:#afa2a8;flex-shrink:0}
+.question-date-trigger[aria-expanded=true]>svg:last-child{transform:rotate(180deg)}
+.question-date-trigger .date-placeholder{color:#b1a7ae}
+.question-calendar{padding:9px;border:1px solid #733045;border-radius:15px;background:linear-gradient(150deg,#26171e,#181517);box-shadow:inset 0 1px 1px #ffffff14,0 8px 20px #0003}
+.question-calendar-header{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px}
+.question-calendar-header strong{color:#f3e9ed;font-size:15px;font-weight:600;text-align:center;text-transform:capitalize}
+.question-calendar-header button,.question-calendar-days button{display:grid;place-items:center;min-width:0;border-radius:9px;color:#eee8eb}
+.question-calendar-header button{width:39px;height:39px;padding:0;color:#eab0bf}
+.question-calendar-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;text-align:center}
+.question-calendar-weekday{color:#b7a5af;font-size:11px;font-weight:500;padding:5px 0}
+.question-calendar-days button,.question-calendar-outside{display:grid;place-items:center;min-height:35px;font-size:13px}
+.question-calendar-header button:hover:not(:disabled),.question-calendar-days button:hover:not(:disabled){background:#ffffff13}
+.question-calendar-days button[aria-pressed=true],.question-calendar-days button[aria-pressed=true]:hover{background:#8f1936;color:#fff5f7}
+.question-calendar button:disabled,.question-calendar-outside{color:#796b73}
+.question-calendar button:focus-visible,.question-date-trigger:focus-visible{outline:2px solid #ef839b;outline-offset:-2px}
+@media(pointer:coarse){.question-calendar-days button,.question-calendar-outside,.question-calendar-header button{min-height:44px}}
 .unread-divider{display:flex;align-items:center;justify-content:center;gap:16px;flex-shrink:0;margin:14px 0;color:#c6919a;font-size:11px;letter-spacing:.04em}
 .unread-divider:before,.unread-divider:after{content:'';height:1px;background:#a8002440;flex:1}
 .preparing-entry .message-row{visibility:hidden}

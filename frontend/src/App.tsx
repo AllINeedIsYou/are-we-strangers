@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type SetStateAction } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode, type SetStateAction } from 'react';
 import { ArrowLeft, ArrowUpRight, Bell, Bookmark, Check, ChevronRight, Copy, Forward, Pin, PinOff, Reply, Trash2, Clock3, LogOut, MessageCircle, MoreHorizontal, Paperclip, Phone, Search, Send, Settings, Smile, SquarePen, UserRound, X } from 'lucide-react';
 import { acceptChapter, canPulse, editMessage, forwardMessages, id, initialState, removeMessages, restoreMessages, restoreState, saveMoment, messageSummary, storageKey, timeNow, type Chat, type MediaAsset, type DemoState, type Message, type RemovedMessage, type ReplySnapshot } from './domain';
 import { MessageBubble, MessageContextMenu, type MessageMenuTarget } from './MessageActions';
@@ -8,7 +8,11 @@ import Avatar from './Avatar';
 import AvatarCropDialog from './AvatarCropDialog';
 import ForwardDialog from './ForwardDialog';
 import MomentCard from './MomentCard';
+import FutureQuestionsPanel, { FutureQuestionsLayout } from './FutureQuestionsPanel';
+import FutureQuestionAnswerForm from './FutureQuestionAnswerForm';
+import { dateValue } from './QuestionDatePicker';
 import ContactProfile from './ContactProfile';
+import ChatListDivider, { loadChatListWidth, maxChatListWidth, saveChatListWidth } from './ChatListDivider';
 import ConversationSearch from './ConversationSearch';
 import { animateMessageDeletion } from './deletionAnimation';
 import { fileKind, storeMedia } from './mediaStore';
@@ -20,9 +24,10 @@ import useAuthSession from './useAuthSession';
 import { authApi, friendlyError } from './authApi';
 import useMessenger from './useMessenger';
 import useReadTracking from './useReadTracking';
+import useFutureQuestionClock from './useFutureQuestionClock';
 import useDragSelection from './useDragSelection';
 import useUserSearch from './useUserSearch';
-import type { PublicUser } from './messengerApi';
+import type { PublicUser, ServerFutureQuestion } from './messengerApi';
 import DevAccountSwitch from './DevAccountSwitch';
 import { findOwnChats, usesGlobalSearch } from './userSearch';
 import { findMoments } from './search';
@@ -38,7 +43,8 @@ function ChapterDivider({ title }: { title: string }) {
   </section>;
 }
 function Brand({ compact = false, pulse = false }: { compact?: boolean; pulse?: boolean }) {
-  return <span className={`brand ${compact ? 'brand-compact' : ''}`}>{!compact && <Star pulse={pulse} ambient />}<span className="brand-type"><span>Are we{compact && <Star pulse={pulse} />}</span><span>strangers?</span></span></span>;
+  if (compact) return <span className="brand brand-compact"><span className="brand-type"><span className="brand-wordmark">Are we strangers?</span><Star pulse={pulse} /></span></span>;
+  return <span className="brand"><Star pulse={pulse} ambient /><span className="brand-type"><span>Are we</span><span>strangers?</span></span></span>;
 }
 function IconButton({ label, children, onClick, className = '', type = 'button', disabled = false }: { label: string; children: ReactNode; onClick?: () => void; className?: string; type?: 'submit' | 'button'; disabled?: boolean }) {
   return <button type={type} disabled={disabled} className={`icon-button ${className}`} onClick={onClick} aria-label={label}>{children}</button>;
@@ -50,6 +56,7 @@ function Modal({ title, children, onClose, className = '', locked = false }: { t
 }
 function loadDemo(userId: number) { try { return restoreState(localStorage.getItem(`${storageKey}.user.${userId}`)); } catch { return initialState(); } }
 type Panel = 'moments' | 'questions' | 'chapters';
+const minimumChatSearchWidth = 122;
 type ModalName = 'settings' | 'profile' | 'calls' | 'new-chat' | 'recovery' | 'reset-confirm' | 'pinned' | null;
 const emptyChat: Chat = { id: '', name: '', initial: '', online: false, unread: 0 };
 function dayLabel(date: string) {
@@ -94,6 +101,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState<ModalName>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
+  const [answeringQuestion, setAnsweringQuestion] = useState<{ chatId: string; id: number } | null>(null);
   const [contactOpen,setContactOpen]=useState(false);
   const [contactVisible,setContactVisible]=useState(false);
   const contactButton=useRef<HTMLButtonElement>(null);
@@ -117,8 +125,6 @@ export default function App() {
   const [removedUndo, setRemovedUndo] = useState<RemovedMessage[] | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [question, setQuestion] = useState('');
-  const [questionDate, setQuestionDate] = useState('');
   const [chapterTitle, setChapterTitle] = useState('');
   const [inlineError,setInlineError]=useState('');
   const [pulse, setPulse] = useState(false);
@@ -127,7 +133,13 @@ export default function App() {
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const followBottom = useRef(true);
-  const [wide, setWide] = useState(() => window.innerWidth > 760);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [chatListWidth, setChatListWidth] = useState(loadChatListWidth);
+  const wide = viewportWidth > 760;
+  const maximumChatListWidth = Math.min(maxChatListWidth, viewportWidth - 420);
+  const sidebarWidth = Math.min(chatListWidth, maximumChatListWidth);
+  const compactSidebar = wide && sidebarWidth < 96;
+  const showChatSearch = !wide || sidebarWidth >= minimumChatSearchWidth;
   const scrollIntent=useRef(0);
   const composer = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -158,6 +170,25 @@ export default function App() {
   const moments = state.moments.filter(moment => moment.chatId === chat.id);
   const visibleMoments = findMoments(moments, momentQuery ?? '');
   const momentsStatus = live.momentsStatus[chat.id];
+  const futureQuestions = live.questions[chat.id];
+  const futureQuestionCards = futureQuestions?.cards ?? [];
+  const demoQuestions = demoMode && panel === 'questions' ? state.questions.filter(item => item.chatId === chat.id) : [];
+  const questionClock = useFutureQuestionClock(demoMode
+    ? demoQuestions.map(question => Date.parse(`${question.date}T00:00:00`))
+    : futureQuestionCards.map(card => Date.parse(card.opens_at)));
+  const questionNotices = new Map<string | null, ServerFutureQuestion[]>();
+  if (!demoMode && messageSearch === null) {
+    const openQuestions = futureQuestionCards.filter(card => Date.parse(card.opens_at) <= questionClock)
+      .sort((first, second) => Date.parse(first.opens_at) - Date.parse(second.opens_at) || first.id - second.id);
+    for (const card of openQuestions) {
+      const openedAt = Date.parse(card.opens_at);
+      const nextMessage = messages.find(message => message.createdAt && Date.parse(message.createdAt) >= openedAt);
+      const key = nextMessage?.id ?? null;
+      const notices = questionNotices.get(key) ?? [];
+      notices.push(card);
+      questionNotices.set(key, notices);
+    }
+  }
   const history = live.history[chat.id];
   const showFirstChapter = demoMode || (!!history && !history.loading && !history.hasOlder && !history.error);
   const sending = !demoMode && !!live.sending[chat.id];
@@ -188,7 +219,12 @@ export default function App() {
   const globalUsers = results.users.filter(user => !existingPartners.has(user.id));
   const visibleChats = findOwnChats(state.chats, search, results.users);
   if (demoMode) visibleChats.sort((a, b) => (activity.get(b.id) || 0) - (activity.get(a.id) || 0));
-  useEffect(() => { const resize = () => setWide(window.innerWidth > 760); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize); }, []);
+  useEffect(() => { const resize = () => setViewportWidth(window.innerWidth); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize); }, []);
+  function resizeChatList(width: number, save: boolean) {
+    setChatListWidth(width);
+    if (width < minimumChatSearchWidth && search) setSearch('');
+    if (save) saveChatListWidth(width);
+  }
   useEffect(() => { setOpenError(''); }, [search, newSearch]);
 
   useEffect(() => {
@@ -231,6 +267,10 @@ export default function App() {
   useEffect(() => {
     if (panel === 'moments' && !demoMode && chat.serverId) void live.store?.loadMoments(chat.id);
   }, [panel, demoMode, chat.id, chat.serverId, live.store]);
+  useEffect(() => {
+    if (stage === 'chat' && !demoMode && chat.serverId && (wide || mobileChat)) void live.store?.loadFutureQuestions(chat.id);
+  }, [stage, demoMode, chat.id, chat.serverId, wide, mobileChat, live.store]);
+  useEffect(() => { setAnsweringQuestion(null); }, [chat.id, account?.id]);
   useEffect(() => { setMomentQuery(null); }, [panel, chat.id, demoMode, account?.id]);
   useLayoutEffect(() => {
     const node = scroll.current;
@@ -403,6 +443,31 @@ export default function App() {
     element?.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});
   }
   function closeSearch(){setMessageSearch(null);setSearchActiveId(null);}
+  function renderQuestionNotices(beforeMessageId: string | null) {
+    return (questionNotices.get(beforeMessageId) ?? []).map(card => {
+      const isAnswering = answeringQuestion?.chatId === chat.id && answeringQuestion.id === card.id;
+      return <aside className="future-question-notice" key={`question-notice-${card.id}`} aria-label="Вопрос на будущее">
+        <div className="future-question-notice-star" aria-hidden="true"><Star /></div>
+        <span>Вопрос открылся</span>
+        <p>{card.text}</p>
+        {card.my_answer !== null ? card.partner_answer !== null ? <div className="future-question-answers">
+          <div className="moment-note"><span className="eyebrow">Твой ответ</span><p>{card.my_answer}</p></div>
+          <div className="moment-note"><span className="eyebrow">Ответ собеседника</span><p>{card.partner_answer}</p></div>
+        </div> : <div className="future-question-accepted" role="status"><Check size={16} aria-hidden="true" /> Ваш ответ принят</div>
+          : isAnswering ? <FutureQuestionAnswerForm
+            onCancel={() => {
+              setAnsweringQuestion(null);
+              requestAnimationFrame(() => document.getElementById(`answer-question-${card.id}`)?.focus({ preventScroll: true }));
+            }}
+            onAnswer={async text => {
+              const saved = await live.store?.answerFutureQuestion(chat.id, card.id, text);
+              if (saved) setAnsweringQuestion(previous => previous?.chatId === chat.id && previous.id === card.id ? null : previous);
+              return saved ?? false;
+            }}
+          /> : <button id={`answer-question-${card.id}`} className="primary" type="button" onClick={() => setAnsweringQuestion({ chatId: chat.id, id: card.id })}>Ответить</button>}
+      </aside>;
+    });
+  }
   function jumpToMessage(messageId: string) {
     setMessageSearch(null);
     followBottom.current = false;
@@ -587,25 +652,26 @@ export default function App() {
       <button className="brand-trigger" disabled={checking || authBusy} aria-label={stage === 'intro' ? 'Are we strangers? Открыть вход' : 'Are we strangers? Свернуть вход'} onClick={() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); setStage(stage === 'intro' ? 'login' : 'intro'); }}><Brand /></button>
       <AuthForm active={stage === 'login'} checking={checking} onAuthenticated={acceptUser} onRegisterMode={setRegister} onBusy={setAuthBusy} onRecovery={() => setModal('recovery')} />
       {(checking || sessionError) && <div className="auth-session-status" role="status">{checking ? 'Проверяем вход…' : <>{sessionError}<button className="text-button" onClick={() => { void refresh(); }}>Проверить вход ещё раз</button></>}</div>}
-    </CenteredAuth> : <main className={`messenger ${mobileChat ? 'show-conversation' : ''}`}>
-      <aside className="sidebar">
+    </CenteredAuth> : <main className={`messenger ${mobileChat ? 'show-conversation' : ''}`} style={wide ? { '--desktop-chat-list-width': `${sidebarWidth}px` } as CSSProperties : undefined}>
+      <aside id="chat-sidebar" className={`sidebar${compactSidebar ? ' sidebar-avatar-only' : ''}`}>
         <header className="sidebar-header"><button className="plain brand-home" onClick={() => { setContactOpen(false);setContactVisible(false);setPanel(null);setMobileChat(false); }} aria-label="К списку чатов"><Brand compact pulse={pulse} /></button><IconButton label="Новый разговор" className="compose-new" onClick={() => setModal('new-chat')}><SquarePen /></IconButton></header>
-        <div className="search-wrap glass"><Search size={21} /><input aria-label="Поиск чатов" value={search} onChange={event => setSearch(event.target.value)} placeholder="Поиск" />{search && <IconButton label="Очистить поиск" onClick={() => setSearch('')}><X size={17} /></IconButton>}</div>
-        <div className="messenger-mode"><span role="status">{demoMode ? 'Демо · только в этом браузере' : live.connection === 'online' ? 'Соединение установлено' : live.connection === 'connecting' ? 'Подключаемся…' : 'Восстанавливаем соединение…'}</span><button onClick={switchMode}>{demoMode ? 'Мои чаты' : 'Демо'}</button></div>
+        {showChatSearch && <div className="search-wrap glass"><Search size={21} /><input aria-label="Поиск чатов" value={search} onChange={event => setSearch(event.target.value)} placeholder="Поиск" />{search && <IconButton label="Очистить поиск" onClick={() => setSearch('')}><X size={17} /></IconButton>}</div>}
+        <div className="messenger-mode" role="status">{demoMode ? 'Демо · только в этом браузере' : live.connection === 'online' ? 'Соединение установлено' : live.connection === 'connecting' ? 'Подключаемся…' : 'Восстанавливаем соединение…'}</div>
         {import.meta.env.DEV && <DevAccountSwitch user={account} onSwitch={user => { live.store?.stop(); acceptUser(user); }} />}
         {!demoMode && live.error && <p className="messenger-error" role="alert">{live.error}<button onClick={() => live.store?.reconnect()}>Повторить</button></p>}
         <div className="chat-list">
           {search.trim() && <h2 className="search-section-heading">Мои чаты</h2>}
           {visibleChats.map(item => {
             const last = state.messages.filter(message => message.chatId === item.id && !message.kind).at(-1);
-            return <button className={`chat-card ${item.id === chat.id ? 'selected' : ''}`} key={item.id} onClick={() => selectChat(item.id)} aria-current={item.id === chat.id ? 'true' : undefined}><span className="avatar">{item.initial}</span><span className="chat-text"><span className="chat-title">{item.name}</span><span className="chat-preview">{last?.own ? 'Вы: ' : ''}{last ? messageSummary(last) : item.username || 'Начать разговор'}</span></span><span className="chat-meta"><time>{last?.time}</time>{item.unread > 0 && <span className="unread">{item.unread}</span>}</span></button>;
+            return <button className={`chat-card ${item.id === chat.id ? 'selected' : ''}`} key={item.id} onClick={() => selectChat(item.id)} aria-current={item.id === chat.id ? 'true' : undefined} title={compactSidebar ? item.name : undefined} aria-label={compactSidebar ? `${item.name}${item.unread ? `, непрочитанных: ${item.unread}` : ''}` : undefined}><Avatar initial={item.initial} asset={item.avatar} /><span className="chat-text"><span className="chat-title">{item.name}</span><span className="chat-preview">{last?.own ? 'Вы: ' : ''}{last ? messageSummary(last) : item.username || 'Начать разговор'}</span></span><span className="chat-meta"><time>{last?.time}</time>{item.unread > 0 && <span className="unread">{item.unread}</span>}</span></button>;
           })}
           {search.trim() && !visibleChats.length && <p className="search-section-empty">{globalSearch && results.loading ? 'Проверяем совпадения…' : 'В твоих чатах совпадений нет'}</p>}
           {globalSearch && <section className="global-user-search" aria-label="Глобальный поиск"><h2 className="search-section-heading">Глобальный поиск</h2><UserResults users={globalUsers} loading={results.loading} error={results.error || openError} opening={openingUser} onOpen={user => { void openUser(user); }} empty={search.trim() === '@' ? 'Введи юзернейм после @' : visibleChats.length ? 'Других пользователей не найдено' : 'Пользователи не найдены'} /></section>}
           {!visibleChats.length && !search.trim() && <p className="empty-search">{!demoMode && live.loading ? 'Загружаем чаты…' : 'Пока нет разговоров. Найди человека по @юзернейму или номеру.'}</p>}
         </div>
-        <nav className="bottom-nav" aria-label="Основная навигация"><IconButton label="Профиль" onClick={() => setModal('profile')}>{avatar?<Avatar asset={avatar} initial={name[0]} className="nav-avatar"/>:<UserRound />}</IconButton><IconButton label="Звонки" onClick={() => setModal('calls')}><Phone /></IconButton><IconButton label="Чаты" className="active" onClick={() => { setContactOpen(false);setContactVisible(false);setModal(null); setMobileChat(false); }}><MessageCircle /></IconButton><IconButton label="Настройки" onClick={() => setModal('settings')}><Settings /></IconButton></nav>
+        <nav className="bottom-nav" aria-label="Основная навигация"><IconButton label="Профиль" className="nav-profile" onClick={() => setModal('profile')}>{avatar?<Avatar asset={avatar} initial={name[0]} className="nav-avatar"/>:<UserRound />}</IconButton><IconButton label="Звонки" className="nav-calls" onClick={() => setModal('calls')}><Phone /></IconButton><IconButton label="Чаты" className="nav-chats active" onClick={() => { setContactOpen(false);setContactVisible(false);setModal(null); setMobileChat(false); }}><MessageCircle /></IconButton><IconButton label="Настройки" className="nav-settings" onClick={() => setModal('settings')}><Settings /></IconButton></nav>
       </aside>
+      {wide && !panel && <ChatListDivider width={sidebarWidth} maximum={maximumChatListWidth} onResize={resizeChatList} />}
       {!chat.id ? <section className="conversation live-empty"><Brand /><p>{live.loading ? 'Загружаем твои разговоры…' : 'С кем начнётся твоя история?'}</p><button className="secondary glass" onClick={() => setModal('new-chat')}>Начать разговор</button></section> : <section ref={conversation} className={`conversation ${selectedIds.length?'is-selecting':''} ${contactOpen?'contact-is-open':''}`} aria-label={`Переписка: ${chat.name}`}>
         <div className="chat-surface" inert={contactVisible}><header className="conversation-header"><IconButton label="Назад к чатам" className="mobile-back" onClick={() => { setMobileChat(false); setPanel(null); }}><ArrowLeft /></IconButton><button ref={contactButton} className="contact-button plain glass" disabled={recordingActive} onClick={openContact} aria-label={`Открыть профиль: ${chat.name}`}><span className="avatar">{chat.initial}</span><span><strong>{chat.name}</strong><span className="status">{chat.serverId ? chat.username : chat.online ? <><i />В сети</> : 'был(а) недавно'}</span></span></button><div className="header-actions glass"><IconButton label="Позвонить" onClick={() => setModal('calls')}><Phone /></IconButton><IconButton label="Поиск в переписке" onClick={() => setMessageSearch(value => value === null ? '' : null)}><Search /></IconButton><div className="menu-wrap"><IconButton label="Меню разговора" onClick={() => setMenuOpen(value => !value)}><MoreHorizontal /></IconButton>{menuOpen && <><button className="menu-scrim" aria-label="Закрыть меню" onClick={() => setMenuOpen(false)} /><div className="dropdown glass"><button onClick={()=>{setMessageSearch('');setMenuOpen(false);}}><Search/>Поиск в переписке</button><button onClick={() => { setPanel('moments'); setMenuOpen(false); }}><Bookmark />Сохранённые моменты</button><button onClick={() => { setPanel('questions'); setMenuOpen(false); }}><Clock3 />Вопрос на будущее</button><button onClick={() => { setPanel('chapters'); setMenuOpen(false); }}><ArrowUpRight />Начать заново</button></div></>}</div></div>{selectedIds.length>0&&<IconButton label="Завершить выбор сообщений" className="selection-done" onClick={()=>setSelectedIds([])}><Check/></IconButton>}</header>
         {messageSearch !== null && <><ConversationSearch query={messageSearch} onQuery={setMessageSearch} messages={messages} chat={chat} ownName={name} ownAvatar={avatar} onNavigate={navigateSearch} onClose={closeSearch}/>{!demoMode && <span className="search-scope-label">Поиск по загруженным сообщениям</span>}</>}
@@ -625,15 +691,15 @@ export default function App() {
           {!demoMode && history?.error && <p className="history-error" role="alert">{history.error}</p>}
           {showFirstChapter && <ChapterDivider title="Первое знакомство" />}
           {demoMode && <div className="date-separator"><span>Сегодня</span></div>}
-          {messages.map((message, index) => {
+          {messages.length === 0 && <div className="conversation-empty">{!showFirstChapter && <Star ambient />}<p>{!demoMode && (history?.loading || live.loading) ? 'Загружаем переписку…' : messageSearch ? 'Сообщения не найдены' : 'С чего начнём разговор?'}</p></div>}
+          {messages.flatMap((message, index) => {
             const original = message.replyToId ? messagesById.get(message.replyToId) : undefined;
-            return <Fragment key={message.id}>
+            return [...renderQuestionNotices(message.id), <Fragment key={message.id}>
             {message.createdAt && (!messages[index - 1]?.createdAt || new Date(messages[index - 1].createdAt!).toDateString() !== new Date(message.createdAt).toDateString()) && <div className="date-separator"><span>{dayLabel(message.createdAt)}</span></div>}
             {!demoMode && readEntry.boundary === message.id && <div className="unread-divider" data-unread-boundary><span>Новые сообщения</span></div>}
             {message.kind === 'chapter' ? <ChapterDivider title={message.text} /> : <MessageBubble message={message} pinned={pinnedIds.has(message.id)} quote={original ? quoteFor(original) : undefined} selected={selectedIds.includes(message.id)} selecting={selectedIds.length > 0} active={messageMenu?.message.id === message.id || highlightId === message.id} searchQuery={messageSearch||''} searchActive={searchActiveId===message.id} onMenu={setMessageMenu} onSelect={toggleSelected} onJump={jumpToMessage} />}
-            </Fragment>;
-          })}
-          {messages.length === 0 && <div className="conversation-empty">{!showFirstChapter && <Star ambient />}<p>{!demoMode && (history?.loading || live.loading) ? 'Загружаем переписку…' : messageSearch ? 'Сообщения не найдены' : 'С чего начнём разговор?'}</p></div>}
+            </Fragment>];
+          }).concat(renderQuestionNotices(null))}
         </div></div>
         <div ref={composerArea} className={`composer-area ${recordingActive?'is-recording':''}`}>
           {selectedIds.length>0?<div className="selection-dock" aria-label="Действия с выбранными сообщениями"><IconButton label="Удалить выбранные сообщения" disabled={deleting} className="glass round" onClick={()=>requestDelete([...selectedIds])}><Trash2/></IconButton><span className="selection-count">Выбрано: {selectedIds.length}{!demoMode && selectedIds.length === 100 ? ' · максимум 100' : ''}</span><div className="selection-dock-actions"><IconButton label="Копировать выбранные сообщения" onClick={()=>void copyMessages(selectedIds)}><Copy/></IconButton><IconButton label="Сохранить выбранные сообщения в момент" onClick={()=>openMoment([...selectedIds])}><Bookmark/></IconButton><IconButton label="Переслать выбранные сообщения" disabled={forwarding} className="glass round" onClick={()=>openForward([...selectedIds])}><Forward/></IconButton></div></div>:<>
@@ -657,8 +723,8 @@ export default function App() {
       </section>}
       {panel && <dialog ref={historyDialog} className={`history-panel ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label="История знакомства" onCancel={event => {event.preventDefault();closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}><header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>История знакомства</h2></div><IconButton label={contactOpen?"Назад к профилю":"Закрыть историю"} onClick={closeHistory}>{contactOpen?<ArrowLeft/>:<X/>}</IconButton></header><div className="panel-tabs" role="tablist" aria-label="История знакомства">{([['moments', 'Моменты'], ['questions', 'Будущее'], ['chapters', 'Главы']] as const).map(([tab, label]) => <button key={tab} role="tab" aria-selected={panel === tab} onClick={() => setPanel(tab)}>{label}</button>)}</div><div className="panel-content">
         {demoMode ? <p className="panel-demo">Демонстрация механик. Ответы собеседника моделируются вручную.</p>
-          : panel !== 'moments' && <p className="panel-demo">Этот раздел пока доступен в демо.</p>}
-        <fieldset className="feature-fields" disabled={!demoMode && panel !== 'moments'}>
+          : panel === 'chapters' && <p className="panel-demo">Этот раздел пока доступен в демо.</p>}
+        <fieldset className="feature-fields" disabled={!demoMode && panel === 'chapters'}>
         {panel === 'moments' && <>
           <div className="moments-heading">
             <h3>Не забывайте важные моменты</h3>
@@ -677,9 +743,39 @@ export default function App() {
             else if (moment.serverId) return live.store?.replyToMoment(chat.id, moment.serverId, response);
           }} />)}
         </>}
-        {panel === 'questions' && <><h3>Спросить нас будущих</h3><p className="muted">Один вопрос, два ответа. Вернётесь к нему в выбранный день.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); const opens = String(new FormData(event.currentTarget).get('opens') || ''); if (!question.trim() || !opens) return; setState(previous => ({ ...previous, questions: [...previous.questions, { id: id(), chatId: chat.id, text: question.trim(), date: opens, answer: '' }] })); setQuestion(''); setQuestionDate(''); }}><label>Наш вопрос<textarea value={question} onChange={event => setQuestion(event.target.value)} placeholder="Какими мы будем через год?" required maxLength={500} /></label><label>Когда открыть<input type="date" name="opens" value={questionDate} min={new Date().toLocaleDateString('en-CA')} onChange={event => setQuestionDate(event.target.value)} required /></label><button className="primary">Оставить на будущее</button></form>{state.questions.filter(item => item.chatId === chat.id).map(item => <article className="history-card" key={item.id}><span className="eyebrow">{new Date(`${item.date}T12:00:00`).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })}</span><h3>{item.text}</h3>{item.date > new Date().toLocaleDateString('en-CA') ? <p className="muted"><Clock3 size={16} /> Встретимся с этим вопросом позже.</p> : <><AnswerForm label="Твой ответ" value={item.answer} onSave={answer => setState(previous => ({ ...previous, questions: previous.questions.map(q => q.id === item.id ? { ...q, answer } : q) }))} /><AnswerForm label={`Ответ: ${chat.name} · демо`} value={item.otherAnswer || ''} onSave={otherAnswer => setState(previous => ({ ...previous, questions: previous.questions.map(q => q.id === item.id ? { ...q, otherAnswer } : q) }))} /></>}</article>)}</>}
+        {panel === 'questions' && !demoMode && live.store && <FutureQuestionsPanel
+          key={chat.id}
+          cards={futureQuestionCards}
+          now={questionClock}
+          loading={futureQuestions?.loading ?? true}
+          error={futureQuestions?.error}
+          onReload={() => void live.store?.loadFutureQuestions(chat.id)}
+          onCreate={(text, opensAt) => live.store?.createFutureQuestion(chat.id, text, opensAt) ?? Promise.resolve(false)}
+          onAnswer={(questionId, text) => live.store?.answerFutureQuestion(chat.id, questionId, text) ?? Promise.resolve(false)}
+        />}
+        {panel === 'questions' && demoMode && <FutureQuestionsLayout
+          key={chat.id}
+          cards={demoQuestions}
+          now={questionClock}
+          getOpening={item => `${item.date}T00:00:00`}
+          hasAnswer={item => !!item.answer}
+          onCreate={(text, opening) => {
+            setState(previous => ({ ...previous, questions: [...previous.questions, {
+              id: id(), chatId: chat.id, text, date: dateValue(opening), answer: '',
+            }] }));
+            return true;
+          }}
+          renderAnswer={item => <>
+            <AnswerForm label="Твой ответ" value={item.answer} onSave={answer => setState(previous => ({
+              ...previous, questions: previous.questions.map(question => question.id === item.id ? { ...question, answer } : question),
+            }))} />
+            <AnswerForm label={`Ответ: ${chat.name} · демо`} value={item.otherAnswer || ''} onSave={otherAnswer => setState(previous => ({
+              ...previous, questions: previous.questions.map(question => question.id === item.id ? { ...question, otherAnswer } : question),
+            }))} />
+          </>}
+        />}
         {panel === 'chapters' && <><h3>Давай начнём заново</h3><p className="muted">Новая глава начинается, когда вы оба согласны. Всё, что было до неё, остаётся.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); if (!chapterTitle.trim()) return; setState(previous => ({ ...previous, chapters: [...previous.chapters, { id: id(), chatId: chat.id, title: chapterTitle.trim(), status: 'pending' }] })); setChapterTitle(''); }}><label>Название главы<input value={chapterTitle} onChange={event => setChapterTitle(event.target.value)} placeholder="Чуть ближе" maxLength={70} required /></label><button className="primary">Предложить новую главу</button></form>{state.chapters.filter(item => item.chatId === chat.id).map(item => <article className="history-card" key={item.id}><span className="eyebrow">{item.status === 'pending' ? 'ЖДЁМ СОГЛАСИЯ' : 'НОВАЯ ГЛАВА'}</span><h3>{item.title}</h3>{item.status === 'pending' ? <button className="secondary" onClick={() => { setState(previous => acceptChapter(previous, item.id));  }}>Смоделировать согласие {chat.name}</button> : <p className="muted">Вы решили продолжить с новой страницы.</p>}</article>)}</>}
-      </fieldset></div></dialog>}
+      </fieldset></div>{wide && <ChatListDivider width={sidebarWidth} maximum={maximumChatListWidth} onResize={resizeChatList} inHistory />}</dialog>}
     </main>}
     {messageMenu && <MessageContextMenu live={!demoMode} forwardBusy={forwarding} forwardTargets={state.chats} onForwardTo={target=>void performForward(selectedIds.includes(messageMenu.message.id)?selectedIds:[messageMenu.message.id],target)} target={messageMenu} pinned={pinnedIds.has(messageMenu.message.id)} pinBusy={!demoMode && live.pinBusy[chat.id]} onClose={() => setMessageMenu(null)} onReply={() => beginReply(messageMenu.message)} onCopy={() => { void copyMessages([messageMenu.message.id]); }} onEdit={() => beginEdit(messageMenu.message)} onPin={() => { void changePin(messageMenu.message, !pinnedIds.has(messageMenu.message.id)); }} onForward={() => openForward(selectedIds.includes(messageMenu.message.id) ? [...selectedIds] : [messageMenu.message.id])} onSelect={() => setSelectedIds([messageMenu.message.id])} onMoment={() => openMoment(selectedIds.includes(messageMenu.message.id)?selectedIds:[messageMenu.message.id])} onDelete={() => requestDelete([messageMenu.message.id])} />}
     {forwardIds&&<ForwardDialog chats={state.chats} count={forwardIds.length} busy={forwarding} error={inlineError} onClose={()=>{setForwardIds(null);setInlineError('');}} onForward={target=>void performForward(forwardIds,target)}/>}

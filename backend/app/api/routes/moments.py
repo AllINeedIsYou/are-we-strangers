@@ -1,14 +1,11 @@
 from fastapi import APIRouter
-from sqlalchemy.util.cython import returns
-
-from backend.app.models import Chats
 from backend.app.services.momets import create_moment,get_moments,reply_to_moment
 from backend.app.schemas.moments import ReplyToMomentRequest,MomentCreateRequest,MomentAndMessagesResponse
 from backend.database.session import SessionDep
 from backend.app.api.dependencies import CurrentUser
 from backend.app.core.connections import connection_manager
 from anyio import from_thread
-from backend.app.services.chats import get_chat_for_user,get_users_by_chat
+from backend.app.services.chats import get_users_by_chat
 
 
 moments_router=APIRouter(prefix='/chats/{chat_id}/moments',tags=["Моменты"])

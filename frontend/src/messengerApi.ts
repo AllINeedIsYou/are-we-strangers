@@ -11,9 +11,24 @@ export type ServerMomentCard = {
   moment: { id: number; chat_id: number; author_id: number; reason: string; response: string | null; created_at: string };
   messages: MomentCopy[];
 };
+export type ServerFutureQuestion = {
+  id: number; chat_id: number; author_id: number; text: string; opens_at: string; created_at: string;
+  my_answer: string | null; partner_answer: string | null;
+};
 export const chatKey = (id: number) => `server-${id}`;
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const date = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
+function isFutureQuestion(value: unknown): value is ServerFutureQuestion {
+  const question = value as ServerFutureQuestion | null;
+  return !!question && positive(question.id) && positive(question.chat_id) && positive(question.author_id)
+    && typeof question.text === 'string' && date(question.opens_at) && date(question.created_at)
+    && (question.my_answer === null || typeof question.my_answer === 'string')
+    && (question.partner_answer === null || (typeof question.my_answer === 'string' && typeof question.partner_answer === 'string'));
+}
+export function isFutureQuestionEvent(value: unknown): value is { chat_id: number; question_id: number } {
+  const event = value as { chat_id?: unknown; question_id?: unknown } | null;
+  return !!event && positive(event.chat_id) && positive(event.question_id);
+}
 export function isMomentCard(value: unknown): value is ServerMomentCard {
   const card = value as ServerMomentCard | null;
   const moment = card?.moment;
@@ -58,6 +73,21 @@ export const messengerApi = {
   search: async (q: string, signal?: AbortSignal) => list(await apiRequest(`/api/user/search?${new URLSearchParams({ q: q.trim() })}`, undefined, { signal }), isPublicUser),
   chats: async (signal?: AbortSignal) => list(await apiRequest('/api/chats', undefined, { signal }), isChat),
   createChat: async (partner_id: number, signal?: AbortSignal) => checked(await apiRequest('/api/chats', { partner_id }, { signal }), isChat),
+  futureQuestions: async (chatId: number, signal?: AbortSignal) => {
+    const questions = list(await apiRequest(`/api/chats/${chatId}/future-questions`, undefined, { signal }), isFutureQuestion);
+    if (questions.some(question => question.chat_id !== chatId)) throw new ApiError(0, 'Сервер вернул вопросы другого чата');
+    return questions;
+  },
+  createFutureQuestion: async (chatId: number, text: string, opens_at: string, signal?: AbortSignal) => {
+    const question = checked(await apiRequest(`/api/chats/${chatId}/future-questions`, { text, opens_at }, { signal }), isFutureQuestion);
+    if (question.chat_id !== chatId) throw new ApiError(0, 'Сервер вернул вопрос другого чата');
+    return question;
+  },
+  answerFutureQuestion: async (chatId: number, id: number, text: string, signal?: AbortSignal) => {
+    const question = checked(await apiRequest(`/api/chats/${chatId}/future-questions/${id}/answer`, { text }, { signal }), isFutureQuestion);
+    if (question.chat_id !== chatId || question.id !== id) throw new ApiError(0, 'Сервер вернул другой вопрос');
+    return question;
+  },
   moments: async (chatId: number, signal?: AbortSignal) => {
     const cards = list(await apiRequest(`/api/chats/${chatId}/moments`, undefined, { signal }), isMomentCard);
     if (cards.some(card => card.moment.chat_id !== chatId)) throw new ApiError(0, 'Сервер вернул моменты другого чата');
