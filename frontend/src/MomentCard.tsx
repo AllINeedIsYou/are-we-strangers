@@ -1,16 +1,17 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Send } from 'lucide-react';
 import { friendlyError } from './authApi';
 import type { Moment } from './domain';
 import MediaView from './MediaView';
 
-export default function MomentCard({ moment, name, partner, ownId, demo, onReply }: {
+export default function MomentCard({ moment, name, partner, ownId, demo, onReply, archiveAction }: {
   moment: Moment;
   name: string;
   partner: string;
   ownId: number;
   demo: boolean;
   onReply: (text: string) => void | Promise<boolean>;
+  archiveAction?: ReactNode;
 }) {
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -52,5 +53,6 @@ export default function MomentCard({ moment, name, partner, ownId, demo, onReply
       </div>
       {error && <p className="inline-error" role="alert">{error}</p>}
     </form>}
+    {archiveAction}
   </article>;
 }

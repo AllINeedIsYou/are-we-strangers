@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode, type SetStateAction } from 'react';
-import { ArrowLeft, ArrowUpRight, Bell, Bookmark, Check, ChevronRight, Copy, Forward, Pin, PinOff, Reply, Trash2, Clock3, LogOut, MessageCircle, MoreHorizontal, Paperclip, Phone, Search, Send, Settings, Smile, SquarePen, UserRound, X } from 'lucide-react';
+import { Archive, ArrowLeft, ArrowUpRight, Bell, Bookmark, Check, ChevronRight, Copy, Forward, Pin, PinOff, Reply, Trash2, Clock3, LogOut, MessageCircle, MoreHorizontal, Paperclip, Phone, Search, Send, Settings, Smile, SquarePen, UserRound, X } from 'lucide-react';
 import { acceptChapter, canPulse, editMessage, forwardMessages, id, initialState, removeMessages, restoreMessages, restoreState, saveMoment, messageSummary, storageKey, timeNow, type Chat, type MediaAsset, type DemoState, type Message, type RemovedMessage, type ReplySnapshot } from './domain';
 import { MessageBubble, MessageContextMenu, type MessageMenuTarget } from './MessageActions';
 import MediaView from './MediaView';
@@ -15,6 +15,12 @@ import ContactProfile from './ContactProfile';
 import ChaptersPanel from './ChaptersPanel';
 import ChapterProposalNotice from './ChapterProposalNotice';
 import ScrollToBottom from './ScrollToBottom';
+import useArchive from './useArchive';
+import { archiveKey } from './archiveStore';
+import ArchiveAction from './ArchiveAction';
+import ArchiveEmpty from './ArchiveEmpty';
+import HistoryArchive from './HistoryArchive';
+import ChatArchiveList, { ArchiveChatRow } from './ChatArchiveList';
 import DateSortButton, { sortByCreated, type DateOrder } from './DateSortButton';
 import { chapterBoundaries, placeChapterBoundaries, type ChapterBoundary } from './chapterTimeline';
 import ChatListDivider, { loadChatListWidth, maxChatListWidth, saveChatListWidth } from './ChatListDivider';
@@ -33,7 +39,8 @@ import useFutureQuestionClock from './useFutureQuestionClock';
 import useHiddenQuestions from './useHiddenQuestions';
 import useDragSelection from './useDragSelection';
 import useUserSearch from './useUserSearch';
-import type { PublicUser, ServerChapter, ServerFutureQuestion } from './messengerApi';
+import type { ArchiveKind, PublicUser, ServerChapter, ServerFutureQuestion } from './messengerApi';
+import type { Moment } from './domain';
 import DevAccountSwitch from './DevAccountSwitch';
 import { findOwnChats, usesGlobalSearch } from './userSearch';
 import { findMoments } from './search';
@@ -61,7 +68,7 @@ function Modal({ title, children, onClose, className = '', locked = false }: { t
   return <dialog ref={dialog} className={`modal glass ${className}`} onCancel={event => { if (locked) event.preventDefault(); else onClose(); }} onClick={event => { if (!locked && event.target === dialog.current) onClose(); }}><header><h2>{title}</h2><IconButton label="Закрыть" disabled={locked} onClick={onClose}><X /></IconButton></header>{children}</dialog>;
 }
 function loadDemo(userId: number) { try { return restoreState(localStorage.getItem(`${storageKey}.user.${userId}`)); } catch { return initialState(); } }
-type Panel = 'moments' | 'questions' | 'chapters';
+type Panel = 'moments' | 'questions' | 'chapters' | 'archive';
 const minimumChatSearchWidth = 122;
 type ModalName = 'settings' | 'profile' | 'calls' | 'new-chat' | 'recovery' | 'reset-confirm' | 'pinned' | null;
 const emptyChat: Chat = { id: '', name: '', initial: '', online: false, unread: 0 };
@@ -108,6 +115,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState<ModalName>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
+  const [chatArchiveOpen, setChatArchiveOpen] = useState(false);
   const [answeringQuestion, setAnsweringQuestion] = useState<{ chatId: string; id: number } | null>(null);
   const [contactOpen,setContactOpen]=useState(false);
   const [contactVisible,setContactVisible]=useState(false);
@@ -158,11 +166,15 @@ export default function App() {
   const live = useMessenger(account?.id ?? null, clearUser, key => { if (!demoMode) pulseNotification(key); }, async (ids, signal) => {
     if (!demoMode) await animateMessageDeletion(ids, signal);
   });
+  const archive = useArchive(demoMode ? null : live.store?.archives);
+  const archivedChatIds = new Set(archive.data?.chat_ids);
+  const archivedMomentIds = new Set(archive.data?.moment_ids);
+  const archivedQuestionIds = new Set(archive.data?.question_ids);
   const state = demoMode ? demoState : live.state;
   function setState(next: SetStateAction<DemoState>) { if (demoMode) setDemoState(next); }
   const results = useUserSearch(search, account?.id ?? null, !!account && !demoMode, clearUser);
   const newResults = useUserSearch(newSearch, account?.id ?? null, !!account && !demoMode && modal === 'new-chat', clearUser);
-  const chat = state.chats.find(item => item.id === chatId) || state.chats[0] || emptyChat;
+  const chat = state.chats.find(item => item.id === chatId) || ((demoMode || archive.data) ? state.chats.find(item => demoMode || !archivedChatIds.has(item.serverId!)) : undefined) || emptyChat;
   const messages = state.messages.filter(item => item.chatId === chat.id);
   const messagesById = new Map(messages.map(message => [message.id, message]));
   const replySource = replyTo ? messagesById.get(replyTo.id) : undefined;
@@ -177,7 +189,8 @@ export default function App() {
   const draft = drafts[chat.id] || '';
   const currentAttachment = attachment?.chatId === chat.id ? attachment : null;
   const momentSelected=state.messages.filter(item=>item.chatId===chat.id&&!item.kind&&momentIds?.includes(item.id));
-  const moments = state.moments.filter(moment => moment.chatId === chat.id);
+  const allMoments = state.moments.filter(moment => moment.chatId === chat.id);
+  const moments = allMoments.filter(moment => demoMode || !archivedMomentIds.has(moment.serverId!));
   const visibleMoments = sortByCreated(findMoments(moments, momentQuery ?? ''), moment => moment.createdAt, momentOrder);
   const momentsStatus = live.momentsStatus[chat.id];
   const chaptersStatus = live.chapters[chat.id];
@@ -191,7 +204,7 @@ export default function App() {
     : futureQuestionCards.map(card => Date.parse(card.opens_at)));
   const questionNotices = new Map<string | null, ServerFutureQuestion[]>();
   if (!demoMode && messageSearch === null) {
-    const openQuestions = futureQuestionCards.filter(card => !hiddenQuestions.has(card.id) && Date.parse(card.opens_at) <= questionClock)
+    const openQuestions = futureQuestionCards.filter(card => !hiddenQuestions.has(card.id) && !archivedQuestionIds.has(card.id) && Date.parse(card.opens_at) <= questionClock)
       .sort((first, second) => Date.parse(first.opens_at) - Date.parse(second.opens_at) || first.id - second.id);
     for (const card of openQuestions) {
       const openedAt = Date.parse(card.opens_at);
@@ -243,7 +256,8 @@ export default function App() {
   const globalSearch = !demoMode && usesGlobalSearch(search);
   const existingPartners = new Set(state.chats.map(item => item.partnerId));
   const globalUsers = results.users.filter(user => !existingPartners.has(user.id));
-  const visibleChats = findOwnChats(state.chats, search, results.users);
+  const archivedChats = state.chats.filter(item => archivedChatIds.has(item.serverId!));
+  const visibleChats = !demoMode && !archive.data && !archive.error ? [] : findOwnChats(state.chats.filter(item => demoMode || (search.trim() && !chatArchiveOpen) || archivedChatIds.has(item.serverId!) === chatArchiveOpen), search, results.users);
   if (demoMode) visibleChats.sort((a, b) => (activity.get(b.id) || 0) - (activity.get(a.id) || 0));
   useEffect(() => { const resize = () => setViewportWidth(window.innerWidth); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize); }, []);
   function resizeChatList(width: number, save: boolean) {
@@ -254,8 +268,9 @@ export default function App() {
   useEffect(() => { setOpenError(''); }, [search, newSearch]);
 
   useEffect(() => {
-    if (!state.chats.some(item => item.id === chatId)) setChatId(state.chats[0]?.id || '');
-  }, [state.chats, chatId]);
+    if (!demoMode && !archive.data) return;
+    if (!state.chats.some(item => item.id === chatId)) setChatId(state.chats.find(item => demoMode || !archivedChatIds.has(item.serverId!))?.id || '');
+  }, [state.chats, chatId, archive.data, demoMode]);
   useLayoutEffect(() => { live.store?.selectChat(!demoMode && (wide || mobileChat) ? chat.id : ''); }, [live.store, demoMode, chat.id, mobileChat, wide]);
   useEffect(() => {
     if (demoMode) return;
@@ -267,6 +282,7 @@ export default function App() {
 
   useEffect(() => {
     setModal(null); setPanel(null); setContactOpen(false); setContactVisible(false);
+    setChatArchiveOpen(false);
     setDrafts({}); setAttachment(null); setReplyTo(null); setEditing(null); setSelectedIds([]);
     setMessageMenu(null); setForwardIds(null); setDeleteIds(null); setMomentIds(null); setCropFile(null);
     setRemovedUndo(null); setDeleting(false); setAccountError(''); setMobileChat(false); setChatId(''); setDemoMode(false); setSearch(''); setNewSearch(''); setOpenError(''); setInlineError('');
@@ -291,7 +307,8 @@ export default function App() {
     return () => node.close();
   }, [panelOpen]);
   useEffect(() => {
-    if (panel === 'moments' && !demoMode && chat.serverId) void live.store?.loadMoments(chat.id);
+    if ((panel === 'moments' || panel === 'archive') && !demoMode && chat.serverId) void live.store?.loadMoments(chat.id);
+    if (panel === 'archive' && !demoMode && chat.serverId) void live.store?.loadFutureQuestions(chat.id);
   }, [panel, demoMode, chat.id, chat.serverId, live.store]);
   useEffect(() => {
     if (stage === 'chat' && !demoMode && chat.serverId && (wide || mobileChat)) void live.store?.loadFutureQuestions(chat.id);
@@ -356,6 +373,7 @@ export default function App() {
     historyCloseTimer.current=setTimeout(()=>{setPanel(null);setHistoryClosing(false);},320);
   }
   function selectChat(selected: string) {
+    setChatArchiveOpen(false);
     setContactOpen(false);setContactVisible(false); cancelEdit(); setReplyTo(null); setSelectedIds([]); setMessageMenu(null); setAttachment(null); fileGeneration.current += 1; setPreparingFiles(false);
     setMomentIds(null);
     followBottom.current = demoMode; olderAnchor.current = null; setInlineError('');
@@ -365,7 +383,7 @@ export default function App() {
   }
   function switchMode() {
     viewRevision.current++;
-    setDemoMode(value => !value); setSearch(''); setNewSearch(''); setChatId(''); setMobileChat(false);
+    setDemoMode(value => !value); setChatArchiveOpen(false); setSearch(''); setNewSearch(''); setChatId(''); setMobileChat(false);
     setModal(null); setPanel(null); setContactOpen(false); setContactVisible(false); setMessageMenu(null);
     setSelectedIds([]); setReplyTo(null); setEditing(null); setInlineError(''); setAttachment(null);
     setMomentIds(null); setForwardIds(null); setDeleteIds(null); setRemovedUndo(null); setMessageSearch(null);
@@ -722,6 +740,19 @@ export default function App() {
     if (account) setStage('chat'); else { setStage('login'); void refresh(); }
   }} />;
 
+  function recordArchiveAction(kind: ArchiveKind, itemId: number, archived: boolean) {
+    if (demoMode || !live.store || !chat.serverId) return undefined;
+    return <ArchiveAction archived={archived} busy={archive.busy[archiveKey(kind, itemId)]} disabled={!archive.data}
+      onChange={transition => live.store!.archives.set(chat.serverId!, kind, itemId, !archived, transition)} />;
+  }
+  function renderMoment(moment: Moment, archived: boolean) {
+    return <MomentCard key={moment.id} moment={moment} name={name} partner={chat.name} ownId={account?.id ?? 0} demo={demoMode}
+      archiveAction={moment.serverId ? recordArchiveAction('moment', moment.serverId, archived) : undefined}
+      onReply={response => {
+        if (demoMode) setState(previous => ({ ...previous, moments: previous.moments.map(item => item.id === moment.id ? { ...item, response } : item) }));
+        else if (moment.serverId) return live.store?.replyToMoment(chat.id, moment.serverId, response);
+      }} />;
+  }
   return <>
     {stage !== 'chat' || !account ? <CenteredAuth active={stage === 'login'} register={register}>
       <button className="brand-trigger" disabled={checking || authBusy} aria-label={stage === 'intro' ? 'Are we strangers? Открыть вход' : 'Are we strangers? Свернуть вход'} onClick={() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); setStage(stage === 'intro' ? 'login' : 'intro'); }}><Brand /></button>
@@ -734,21 +765,28 @@ export default function App() {
         <div className="messenger-mode" role="status">{demoMode ? 'Демо · только в этом браузере' : live.connection === 'online' ? 'Соединение установлено' : live.connection === 'connecting' ? 'Подключаемся…' : 'Восстанавливаем соединение…'}</div>
         {import.meta.env.DEV && <DevAccountSwitch user={account} onSwitch={user => { live.store?.stop(); acceptUser(user); }} />}
         {!demoMode && live.error && <p className="messenger-error" role="alert">{live.error}<button onClick={() => live.store?.reconnect()}>Повторить</button></p>}
-        <div className="chat-list">
+        <ChatArchiveList enabled={!demoMode} wide={wide} resetKey={`${account.id}:${mobileChat}:${demoMode}`} open={chatArchiveOpen}
+          onOpen={() => { setChatArchiveOpen(true); setSearch(''); }} onClose={() => { setChatArchiveOpen(false); setSearch(''); }}
+          names={archive.data ? archivedChats.map(item => item.name).join(', ') : 'Загружаем…'} unread={archivedChats.reduce((total, item) => total + item.unread, 0)}
+          error={archive.error} onReload={() => void live.store?.archives.load()}>
+
           {search.trim() && <h2 className="search-section-heading">Мои чаты</h2>}
           {visibleChats.map(item => {
             const last = state.messages.filter(message => message.chatId === item.id && !message.kind).at(-1);
-            return <button className={`chat-card ${item.id === chat.id ? 'selected' : ''}`} key={item.id} onClick={() => selectChat(item.id)} aria-current={item.id === chat.id ? 'true' : undefined} title={compactSidebar ? item.name : undefined} aria-label={compactSidebar ? `${item.name}${item.unread ? `, непрочитанных: ${item.unread}` : ''}` : undefined}><Avatar initial={item.initial} asset={item.avatar} /><span className="chat-text"><span className="chat-title">{item.name}</span><span className="chat-preview">{last?.own ? 'Вы: ' : ''}{last ? messageSummary(last) : item.username || 'Начать разговор'}</span></span><span className="chat-meta"><time>{last?.time}</time>{item.unread > 0 && <span className="unread">{item.unread}</span>}</span></button>;
+            return <ArchiveChatRow key={item.id} name={item.name} archived={archivedChatIds.has(item.serverId!)} enabled={!demoMode && !!archive.data} busy={!!archive.busy[archiveKey('chat', item.serverId!)]}
+              onChange={() => live.store!.archives.set(item.serverId!, 'chat', item.serverId!, !archivedChatIds.has(item.serverId!))}><button className={`chat-card ${item.id === chat.id ? 'selected' : ''}`} key={item.id} onClick={() => selectChat(item.id)} aria-current={item.id === chat.id ? 'true' : undefined} title={compactSidebar ? item.name : undefined} aria-label={compactSidebar ? `${item.name}${item.unread ? `, непрочитанных: ${item.unread}` : ''}` : undefined}><Avatar initial={item.initial} asset={item.avatar} /><span className="chat-text"><span className="chat-title">{item.name}</span><span className="chat-preview">{last?.own ? 'Вы: ' : ''}{last ? messageSummary(last) : item.username || 'Начать разговор'}</span></span><span className="chat-meta"><time>{last?.time}</time>{item.unread > 0 && <span className="unread">{item.unread}</span>}</span></button></ArchiveChatRow>;
           })}
           {search.trim() && !visibleChats.length && <p className="search-section-empty">{globalSearch && results.loading ? 'Проверяем совпадения…' : 'В твоих чатах совпадений нет'}</p>}
           {globalSearch && <section className="global-user-search" aria-label="Глобальный поиск"><h2 className="search-section-heading">Глобальный поиск</h2><UserResults users={globalUsers} loading={results.loading} error={results.error || openError} opening={openingUser} onOpen={user => { void openUser(user); }} empty={search.trim() === '@' ? 'Введи юзернейм после @' : visibleChats.length ? 'Других пользователей не найдено' : 'Пользователи не найдены'} /></section>}
-          {!visibleChats.length && !search.trim() && <p className="empty-search">{!demoMode && live.loading ? 'Загружаем чаты…' : 'Пока нет разговоров. Найди человека по @юзернейму или номеру.'}</p>}
-        </div>
+          {chatArchiveOpen && !archive.data && !archive.error && <p className="muted" role="status">Загружаем архив…</p>}
+          {chatArchiveOpen && !visibleChats.length && !search.trim() && archive.data && <ArchiveEmpty />}
+          {!visibleChats.length && !search.trim() && !chatArchiveOpen && <p className="empty-search">{!demoMode && (live.loading || (!archive.data && !archive.error)) ? 'Загружаем чаты…' : 'Пока нет разговоров. Найди человека по @юзернейму или номеру.'}</p>}
+        </ChatArchiveList>
         <nav className="bottom-nav" aria-label="Основная навигация"><IconButton label="Профиль" className="nav-profile" onClick={() => setModal('profile')}>{avatar?<Avatar asset={avatar} initial={name[0]} className="nav-avatar"/>:<UserRound />}</IconButton><IconButton label="Звонки" className="nav-calls" onClick={() => setModal('calls')}><Phone /></IconButton><IconButton label="Чаты" className="nav-chats active" onClick={() => { setContactOpen(false);setContactVisible(false);setModal(null); setMobileChat(false); }}><MessageCircle /></IconButton><IconButton label="Настройки" className="nav-settings" onClick={() => setModal('settings')}><Settings /></IconButton></nav>
       </aside>
       {wide && !panel && <ChatListDivider width={sidebarWidth} maximum={maximumChatListWidth} onResize={resizeChatList} />}
       {!chat.id ? <section className="conversation live-empty"><Brand /><p>{live.loading ? 'Загружаем твои разговоры…' : 'С кем начнётся твоя история?'}</p><button className="secondary glass" onClick={() => setModal('new-chat')}>Начать разговор</button></section> : <section ref={conversation} className={`conversation ${selectedIds.length?'is-selecting':''} ${contactOpen?'contact-is-open':''}`} aria-label={`Переписка: ${chat.name}`}>
-        <div className="chat-surface" inert={contactVisible}><header className="conversation-header"><IconButton label="Назад к чатам" className="mobile-back back-button" onClick={() => { setMobileChat(false); setPanel(null); }}><ArrowLeft /></IconButton><button ref={contactButton} className="contact-button plain glass" disabled={recordingActive} onClick={openContact} aria-label={`Открыть профиль: ${chat.name}`}><span className="avatar">{chat.initial}</span><span><strong>{chat.name}</strong><span className="status">{chat.serverId ? chat.username : chat.online ? <><i />В сети</> : 'был(а) недавно'}</span></span></button><div className="header-actions glass"><IconButton label="Позвонить" onClick={() => setModal('calls')}><Phone /></IconButton><IconButton label="Поиск в переписке" onClick={() => setMessageSearch(value => value === null ? '' : null)}><Search /></IconButton><div className="menu-wrap"><IconButton label="Меню разговора" onClick={() => setMenuOpen(value => !value)}><MoreHorizontal /></IconButton>{menuOpen && <><button className="menu-scrim" aria-label="Закрыть меню" onClick={() => setMenuOpen(false)} /><div className="dropdown glass"><button onClick={()=>{setMessageSearch('');setMenuOpen(false);}}><Search/>Поиск в переписке</button><button onClick={() => { setPanel('moments'); setMenuOpen(false); }}><Bookmark />Сохранённые моменты</button><button onClick={() => { setPanel('questions'); setMenuOpen(false); }}><Clock3 />Вопрос на будущее</button><button onClick={() => { setPanel('chapters'); setMenuOpen(false); }}><ArrowUpRight />Главы</button></div></>}</div></div>{selectedIds.length>0&&<IconButton label="Завершить выбор сообщений" className="selection-done" onClick={()=>setSelectedIds([])}><Check/></IconButton>}</header>
+        <div className="chat-surface" inert={contactVisible}><header className="conversation-header"><IconButton label="Назад к чатам" className="mobile-back back-button" onClick={() => { setMobileChat(false); setPanel(null); }}><ArrowLeft /></IconButton><button ref={contactButton} className="contact-button plain glass" disabled={recordingActive} onClick={openContact} aria-label={`Открыть профиль: ${chat.name}`}><span className="avatar">{chat.initial}</span><span><strong>{chat.name}</strong><span className="status">{chat.serverId ? chat.username : chat.online ? <><i />В сети</> : 'был(а) недавно'}</span></span></button><div className="header-actions glass"><IconButton label="Позвонить" onClick={() => setModal('calls')}><Phone /></IconButton><IconButton label="Поиск в переписке" onClick={() => setMessageSearch(value => value === null ? '' : null)}><Search /></IconButton><div className="menu-wrap"><IconButton label="Меню разговора" onClick={() => setMenuOpen(value => !value)}><MoreHorizontal /></IconButton>{menuOpen && <><button className="menu-scrim" aria-label="Закрыть меню" onClick={() => setMenuOpen(false)} /><div className="dropdown glass"><button onClick={()=>{setMessageSearch('');setMenuOpen(false);}}><Search/>Поиск в переписке</button><button onClick={() => { setPanel('moments'); setMenuOpen(false); }}><Bookmark />Сохранённые моменты</button><button onClick={() => { setPanel('questions'); setMenuOpen(false); }}><Clock3 />Вопрос на будущее</button><button onClick={() => { setPanel('chapters'); setMenuOpen(false); }}><ArrowUpRight />Главы</button>{!demoMode && <><button onClick={() => { setPanel('archive'); setMenuOpen(false); }}><Archive />Архив истории</button>{recordArchiveAction('chat', chat.serverId!, archivedChatIds.has(chat.serverId!))}</>}</div></>}</div></div>{selectedIds.length>0&&<IconButton label="Завершить выбор сообщений" className="selection-done" onClick={()=>setSelectedIds([])}><Check/></IconButton>}</header>
         {messageSearch !== null && <><ConversationSearch query={messageSearch} onQuery={setMessageSearch} messages={messages} chat={chat} ownName={name} ownAvatar={avatar} onNavigate={navigateSearch} onClose={closeSearch}/>{!demoMode && <span className="search-scope-label">Поиск по загруженным сообщениям</span>}</>}
 
         {pinned.length > 0 && <div className="pinned-bar glass">
@@ -801,7 +839,7 @@ export default function App() {
         </div></div>
         {contactVisible&&<ContactProfile key={chat.id} open={contactOpen} chat={chat} state={state} serverChapterCount={demoMode ? undefined : chapterCards.length + Number(chapterStarts.some(chapter => chapter.id.startsWith('initial-')))} onClose={()=>setContactOpen(false)} onStory={setPanel} onCall={()=>setModal('calls')} onSearch={()=>{setContactOpen(false);setMessageSearch('');setTimeout(()=>conversation.current?.querySelector<HTMLInputElement>('.conversation-search input')?.focus(),500);}}/>}
       </section>}
-      {panel && <dialog ref={historyDialog} className={`history-panel ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label="История знакомства" onCancel={event => {event.preventDefault();closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}><header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>История знакомства</h2></div><IconButton className={contactOpen ? "back-button" : ""} label={contactOpen?"Назад к профилю":"Закрыть историю"} onClick={closeHistory}>{contactOpen?<ArrowLeft/>:<X/>}</IconButton></header><div className="panel-tabs" role="tablist" aria-label="История знакомства">{([['moments', 'Моменты'], ['questions', 'Будущее'], ['chapters', 'Главы']] as const).map(([tab, label]) => <button key={tab} role="tab" aria-selected={panel === tab} onClick={() => setPanel(tab)}>{label}</button>)}</div><div className="panel-content">
+      {panel && <dialog ref={historyDialog} className={`history-panel ${panel === 'archive' ? 'history-archive-panel' : ''} ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label="История знакомства" onCancel={event => {event.preventDefault();closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}><header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>{panel === 'archive' ? 'Архив' : 'История знакомства'}</h2></div><IconButton className={contactOpen ? "back-button" : ""} label={contactOpen?"Назад к профилю":"Закрыть историю"} onClick={closeHistory}>{contactOpen?<ArrowLeft/>:<X/>}</IconButton></header>{panel !== 'archive' && <div className="panel-tabs" role="tablist" aria-label="История знакомства">{([['moments', 'Моменты'], ['questions', 'Будущее'], ['chapters', 'Главы']] as const).map(([tab, label]) => <button key={tab} role="tab" aria-selected={panel === tab} onClick={() => setPanel(tab)}>{label}</button>)}</div>}<div className="panel-content">
         {demoMode && <p className="panel-demo">Демонстрация механик. Ответы собеседника моделируются вручную.</p>}
         <fieldset className="feature-fields">
         {panel === 'moments' && <>
@@ -819,14 +857,11 @@ export default function App() {
           {!moments.length && !demoMode && (!momentsStatus || momentsStatus.loading) && <p className="muted" role="status">Загружаем моменты…</p>}
           {!moments.length && (demoMode || (momentsStatus && !momentsStatus.loading && !momentsStatus.error)) && <div className="empty-state"><Bookmark /><p>Пока ни одного момента</p><span>Открой меню сообщения правой кнопкой мыши или удержанием на телефоне и выбери «Добавить момент».</span></div>}
           {moments.length > 0 && visibleMoments.length === 0 && <p className="muted" role="status">Совпадений нет</p>}
-          {visibleMoments.map(moment => <MomentCard key={moment.id} moment={moment} name={name} partner={chat.name} ownId={account.id} demo={demoMode} onReply={response => {
-            if (demoMode) setState(previous => ({ ...previous, moments: previous.moments.map(item => item.id === moment.id ? { ...item, response } : item) }));
-            else if (moment.serverId) return live.store?.replyToMoment(chat.id, moment.serverId, response);
-          }} />)}
+          {visibleMoments.map(moment => renderMoment(moment, false))}
         </>}
         {panel === 'questions' && !demoMode && live.store && <FutureQuestionsPanel
           key={chat.id}
-          cards={futureQuestionCards}
+          cards={futureQuestionCards.filter(card => !archivedQuestionIds.has(card.id))}
           now={questionClock}
           loading={futureQuestions?.loading ?? true}
           error={futureQuestions?.error}
@@ -835,6 +870,7 @@ export default function App() {
           onAnswer={(questionId, text) => live.store?.answerFutureQuestion(chat.id, questionId, text) ?? Promise.resolve(false)}
           hiddenIds={hiddenQuestions}
           onShowInChat={id => setQuestionHidden(id, false)}
+          renderArchiveAction={card => recordArchiveAction('question', card.id, false)}
         />}
         {panel === 'questions' && demoMode && <FutureQuestionsLayout
           key={chat.id}
@@ -857,6 +893,18 @@ export default function App() {
               ...previous, questions: previous.questions.map(question => question.id === item.id ? { ...question, otherAnswer } : question),
             }))} />
           </>}
+        />}
+        {panel === 'archive' && !demoMode && <HistoryArchive
+          key={chat.id}
+          moments={allMoments.filter(moment => archivedMomentIds.has(moment.serverId!))}
+          questions={futureQuestionCards.filter(card => archivedQuestionIds.has(card.id))}
+          now={questionClock}
+          loading={!archive.data || !momentsStatus || !futureQuestions || (momentsStatus.loading && !allMoments.length) || (futureQuestions.loading && !futureQuestionCards.length)}
+          error={[archive.error, momentsStatus?.error, futureQuestions?.error].filter(Boolean).join(' ')}
+          onReload={() => { void live.store?.archives.load(); void live.store?.loadMoments(chat.id); void live.store?.loadFutureQuestions(chat.id); }}
+          renderMoment={moment => renderMoment(moment, true)}
+          renderAction={card => recordArchiveAction('question', card.id, true)}
+          onAnswer={(id, text) => live.store?.answerFutureQuestion(chat.id, id, text) ?? Promise.resolve(false)}
         />}
         {panel === 'chapters' && !demoMode && live.store && <ChaptersPanel
           key={chat.id}

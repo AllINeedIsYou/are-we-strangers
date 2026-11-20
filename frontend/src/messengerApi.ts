@@ -2,6 +2,18 @@ import { ApiError, apiRequest } from './authApi.ts';
 import type { Chat, Message, Moment } from './domain.ts';
 
 export type PublicUser = { id: number; name: string; username: string };
+export type ArchiveKind = 'chat' | 'moment' | 'question';
+export type ServerArchive = { chat_ids: number[]; moment_ids: number[]; question_ids: number[] };
+export type ArchiveChange = { chat_id: number; item_type: ArchiveKind; item_id: number; archived: boolean };
+export function isArchiveChange(value: unknown): value is ArchiveChange {
+  const row = value as ArchiveChange | null;
+  return !!row && positive(row.chat_id) && positive(row.item_id) && ['chat', 'moment', 'question'].includes(row.item_type)
+    && typeof row.archived === 'boolean' && (row.item_type !== 'chat' || row.item_id === row.chat_id);
+}
+export function isArchive(value: unknown): value is ServerArchive {
+  const row = value as ServerArchive | null;
+  return !!row && ids(row.chat_ids) && ids(row.moment_ids) && ids(row.question_ids);
+}
 export type ServerChat = { id: number; created_at: string; partner: PublicUser; unread_count: number };
 export type ServerMessage = { id: number; chat_id: number; sender_id: number; text: string; created_at: string; is_read: boolean; is_edited: boolean; reply_to_id: number | null; forwarded_from_name?: string | null };
 export type ReadReceipt = { reader_id: number; chat_id: number; message_ids: number[] };
@@ -86,6 +98,13 @@ function list<T>(value: unknown, guard: (value: unknown) => value is T): T[] {
   return value;
 }
 export const messengerApi = {
+  archive: async (signal?: AbortSignal) => checked(await apiRequest('/api/archive', undefined, { signal }), isArchive),
+  setArchived: async (chatId: number, kind: ArchiveKind, itemId: number, archived: boolean, signal?: AbortSignal) => {
+    const suffix = kind === 'chat' ? '' : kind === 'moment' ? `/moments/${itemId}` : `/future-questions/${itemId}`;
+    const result = checked(await apiRequest(`/api/chats/${chatId}${suffix}/archive`, { archived }, { method: 'PATCH', signal }), isArchiveChange);
+    if (result.chat_id !== chatId || result.item_type !== kind || result.item_id !== itemId || result.archived !== archived) throw new ApiError(0, 'Некорректный ответ об архивировании');
+    return result;
+  },
   chapters: async (chatId: number, signal?: AbortSignal) => {
     const chapters = list(await apiRequest(`/api/chats/${chatId}/chapters`, undefined, { signal }), isChapter);
     if (chapters.some(chapter => chapter.chat_id !== chatId)) throw new ApiError(0, 'Сервер вернул главы другого чата');

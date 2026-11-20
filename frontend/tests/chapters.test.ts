@@ -17,7 +17,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 function harness(overrides: Partial<typeof messengerApi> = {}) {
   const socket = { readyState: 1, onmessage: null as null | ((event: { data: string }) => void), onclose: null, onerror: null, close() {}, send() {} };
   const store = new MessengerStore(3, {
-    api: { ...messengerApi, chats: async () => [chat], messages: async () => [], pins: async () => [], chapters: async () => [chapter], ...overrides },
+    api: { ...messengerApi, archive: async () => ({ chat_ids: [], moment_ids: [], question_ids: [] }), chats: async () => [chat], messages: async () => [], pins: async () => [], chapters: async () => [chapter], ...overrides },
     connect: () => socket as unknown as WebSocket,
     onExpired() {}, onIncoming() {},
   });

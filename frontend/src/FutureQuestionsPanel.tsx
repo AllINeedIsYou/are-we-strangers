@@ -8,7 +8,7 @@ import DateSortButton, { sortByCreated, type DateOrder } from './DateSortButton'
 
 const dateLabel = new Intl.DateTimeFormat('ru', { day: 'numeric', month: 'long', year: 'numeric' });
 
-export default function FutureQuestionsPanel({ cards, now, loading, error, onReload, onCreate, onAnswer, hiddenIds, onShowInChat }: {
+export default function FutureQuestionsPanel({ cards, now, loading, error, onReload, onCreate, onAnswer, hiddenIds, onShowInChat, renderArchiveAction }: {
   cards: ServerFutureQuestion[];
   now: number;
   loading: boolean;
@@ -18,19 +18,24 @@ export default function FutureQuestionsPanel({ cards, now, loading, error, onRel
   onAnswer: (id: number, text: string) => Promise<boolean>;
   hiddenIds: ReadonlySet<number>;
   onShowInChat: (id: number) => void;
+  renderArchiveAction?: (card: ServerFutureQuestion) => ReactNode;
 }) {
   return <FutureQuestionsLayout
     cards={cards} now={now} loading={loading} error={error} onReload={onReload}
     onCreate={(text, opening) => onCreate(text, opening.toISOString())}
     getOpening={card => card.opens_at} getCreated={card => card.created_at} hasAnswer={card => card.my_answer !== null}
-    renderActions={card => hiddenIds.has(card.id) && <button type="button" className="question-show-in-chat" onClick={() => onShowInChat(card.id)}>Показать в чате</button>}
-    renderAnswer={card => card.my_answer === null ? <FutureQuestionAnswerForm onAnswer={text => onAnswer(card.id, text)} /> : <>
+    renderActions={card => <>{hiddenIds.has(card.id) && <button type="button" className="question-show-in-chat" onClick={() => onShowInChat(card.id)}>Показать в чате</button>}{renderArchiveAction?.(card)}</>}
+    renderAnswer={card => <FutureQuestionContent card={card} onAnswer={text => onAnswer(card.id, text)} />}
+  />;
+}
+
+export function FutureQuestionContent({ card, onAnswer }: { card: ServerFutureQuestion; onAnswer: (text: string) => Promise<boolean> }) {
+  return card.my_answer === null ? <FutureQuestionAnswerForm onAnswer={onAnswer} /> : <>
       <div className="moment-note"><span className="eyebrow">ТВОЙ ОТВЕТ</span><p>{card.my_answer}</p></div>
       {card.partner_answer !== null
         ? <div className="moment-note"><span className="eyebrow">ОТВЕТ СОБЕСЕДНИКА</span><p>{card.partner_answer}</p></div>
         : <p className="muted">Ждём ответа собеседника.</p>}
-    </>}
-  />;
+    </>;
 }
 
 export function FutureQuestionsLayout<Card extends { id: number | string; text: string }>({

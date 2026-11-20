@@ -7,3 +7,4 @@ from backend.app.models.messages import Messages
 from backend.app.models.moments import Moments,MessagesForMoments
 from backend.app.models.future_questions import FutureQuestion,FutureQuestionAnswer
 from backend.app.models.chapters import Chapters
+from backend.app.models.arhives import ArchivedChat,ArchivedFutureQuestion,ArchivedMoment

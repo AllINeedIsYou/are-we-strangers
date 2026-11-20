@@ -2,6 +2,7 @@ import { ApiError, friendlyError } from './authApi.ts';
 import { chatKey, isDeletedMessages, isFutureQuestionEvent, isMomentCard, isReadReceipt, isServerMessage, mergeMessages, messengerApi, toChat, toMessage, toMoment, type DeletedMessages, type ReadReceipt, type ServerChat, type ServerFutureQuestion, type ServerMessage, type ServerMomentCard } from './messengerApi.ts';
 import type { DemoState, Message } from './domain.ts';
 import { isChapterEvent, type ChapterDecision, type ServerChapter } from './messengerApi.ts';
+import { ArchiveStore } from './archiveStore.ts';
 
 type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'offline';
 type HistoryStatus = { loading: boolean; hasOlder: boolean; error: string };
@@ -16,6 +17,7 @@ type Options = { api?: typeof messengerApi; connect?: () => WebSocket; onExpired
 
 // Only confirmed server messages enter this store. POST and WS merge by the same ID.
 export class MessengerStore {
+  readonly archives: ArchiveStore;
   private snapshot = emptySnapshot();
   private listeners = new Set<() => void>();
   private api: typeof messengerApi;
@@ -51,7 +53,10 @@ export class MessengerStore {
   private metadataTimer?: ReturnType<typeof setTimeout>;
   private readRetryAt = 0;
 
-  constructor(ownId: number, options: Options) { this.ownId = ownId; this.options = options; this.api = options.api || messengerApi; }
+  constructor(ownId: number, options: Options) {
+    this.ownId = ownId; this.options = options; this.api = options.api || messengerApi;
+    this.archives = new ArchiveStore(this.api, () => { this.stop(); this.options.onExpired(); });
+  }
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private update(patch: Partial<MessengerSnapshot>) {
@@ -68,9 +73,11 @@ export class MessengerStore {
     if (this.active) return;
     this.active = true; this.epoch++; this.abort = new AbortController(); this.attempts = 0;
     this.update({ connection: 'connecting', loading: true });
+    this.archives.start();
     void this.refresh(); this.connect();
   }
   stop() {
+    this.archives.stop();
     this.active = false; this.epoch++; this.abort.abort(); this.clearSocketTimers();
     clearTimeout(this.retryTimer); clearTimeout(this.metadataTimer); this.refreshJob = null; this.refreshQueued = false; this.olderJobs.clear();
     for (const animation of this.deletionAnimations.values()) animation.abort.abort();
@@ -102,6 +109,7 @@ export class MessengerStore {
       if (data.type === 'connected' && 'user_id' in data) {
         if (data.user_id !== this.ownId) { this.stop(); this.options.onExpired(); return; }
         this.clearSocketTimers(); this.attempts = 0; this.update({ connection: 'online' });
+        void this.archives.load();
         // Refresh after subscribing: messages written during the handshake are recovered from history.
         void this.refresh();
         void this.loadPins(this.selectedChat);
@@ -116,6 +124,7 @@ export class MessengerStore {
           } catch { socket.close(); }
         }, 20_000);
       } else if (data.type === 'pong') clearTimeout(this.pongTimer);
+      else if (data.type === 'archive.changed') this.archives.receive(data);
       else if (data.type === 'message.created' && 'message' in data && isServerMessage(data.message)) this.receive(data.message);
       else if (data.type === 'messages.read' && isReadReceipt(data)) this.receiveRead(data);
       else if (data.type === 'message.updated' && 'message' in data && isServerMessage(data.message)) this.receiveEdit(data.message);
@@ -154,6 +163,7 @@ export class MessengerStore {
   reconnect = () => {
     if (!this.active) return;
     this.readRetryAt = 0;
+    void this.archives.load();
     clearTimeout(this.retryTimer);
     if (!this.socket) this.connect();
     void this.refresh();

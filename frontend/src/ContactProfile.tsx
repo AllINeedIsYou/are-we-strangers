@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Bell, BellOff, BookOpen, Bookmark, ChevronRight, Clock3, Copy, Check, File, Image, Link, MessageCircle, Mic, Phone, Search, UserRound, Video, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bell, BellOff, BookOpen, Bookmark, ChevronRight, Clock3, Copy, Check, File, Image, Link, MessageCircle, Mic, Phone, Search, UserRound, Video, X } from 'lucide-react';
 import Avatar from './Avatar';
 import MediaView, { useMediaURL } from './MediaView';
 import type { Chat, DemoState, MediaAsset } from './domain';
 
 type ProfileTab = 'media' | 'files' | 'links' | 'voice' | 'gif';
-type StoryTab = 'moments' | 'questions' | 'chapters';
+type StoryTab = 'moments' | 'questions' | 'chapters' | 'archive';
 const tabs: [ProfileTab, string][] = [['media','Медиа'],['files','Файлы'],['links','Ссылки'],['voice','Голосовые'],['gif','GIF']];
 
 function MediaTile({asset,onOpen}:{asset:MediaAsset;onOpen:()=>void}) {
@@ -61,6 +61,7 @@ export default function ContactProfile({open,chat,state,serverChapterCount,onClo
               <button onClick={()=>onStory('moments')}><Bookmark/><span><strong>История чата</strong><small>{momentCount?`Сохранённые моменты · ${momentCount}`:'Сохранённые моменты'}</small></span><ChevronRight/></button>
               <button onClick={()=>onStory('questions')}><Clock3/><span><strong>Вопросы в будущее</strong><small>Один вопрос. Два ответа.</small></span><ChevronRight/></button>
               <button onClick={()=>onStory('chapters')}><BookOpen/><span><strong>Главы</strong><small>{chapterCount?`Ваши новые начала · ${chapterCount}`:'Новые начала вашей истории'}</small></span><ChevronRight/></button>
+              {chat.serverId && <button onClick={()=>onStory('archive')}><Archive/><span><strong>Архив</strong><small>Моменты и вопросы, которые ты сохранил в архив</small></span><ChevronRight/></button>}
             </div>
           </div>
         </section>
