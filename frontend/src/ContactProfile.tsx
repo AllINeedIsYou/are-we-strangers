@@ -21,7 +21,7 @@ function MediaPreview({asset,onClose}:{asset:MediaAsset;onClose:()=>void}) {
   useEffect(()=>{const node=dialog.current!;node.showModal();return()=>node.close();},[]);
   return <dialog ref={dialog} className="profile-media-preview glass" aria-label={asset.name} onCancel={onClose} onClick={e=>{if(e.target===dialog.current)onClose();}}><header><span>{asset.name}</span><button aria-label="Закрыть медиа" onClick={onClose}><X/></button></header><MediaView asset={asset}/></dialog>;
 }
-export default function ContactProfile({open,chat,state,onClose,onStory,onCall,onSearch}:{open:boolean;chat:Chat;state:DemoState;onClose:()=>void;onStory:(tab:StoryTab)=>void;onCall:()=>void;onSearch:()=>void}) {
+export default function ContactProfile({open,chat,state,serverChapterCount,onClose,onStory,onCall,onSearch}:{open:boolean;chat:Chat;state:DemoState;serverChapterCount?:number;onClose:()=>void;onStory:(tab:StoryTab)=>void;onCall:()=>void;onSearch:()=>void}) {
   const [tab,setTab]=useState<ProfileTab>('media');
   const [details,setDetails]=useState<'about'|'story'>('about');
   const [compact,setCompact]=useState(false);
@@ -36,7 +36,7 @@ export default function ContactProfile({open,chat,state,onClose,onStory,onCall,o
   const displayed=assets.filter(asset=>tab==='media'?['photo','video','circle'].includes(asset.kind)&&!isGif(asset):tab==='files'?asset.kind==='file':tab==='voice'?asset.kind==='voice':tab==='gif'?isGif(asset):false);
   const links=Array.from(new Set(messages.flatMap(message=>message.text.match(/https?:\/\/[^\s<>]+/g)||[]))).map(url=>url.replace(/[.,!?;]+$/,''));
   const momentCount=state.moments.filter(moment=>moment.chatId===chat.id).length;
-  const chapterCount=state.chapters.filter(chapter=>chapter.chatId===chat.id).length;
+  const chapterCount=serverChapterCount ?? state.chapters.filter(chapter=>chapter.chatId===chat.id).length;
   const status=chat.serverId ? chat.username || 'Собеседник' : chat.online?'В сети':'был(а) недавно';
   function toggleMute(){setMuted(value=>{const next=!value;try{localStorage.setItem(`aws.muted.${chat.id}`,String(next));}catch{/* Session preference still works. */}return next;});}
   return <section className={`contact-profile ${open?'profile-open':''} ${compact?'profile-compact':''}`} aria-label={`Профиль: ${chat.name}`} inert={!open}>

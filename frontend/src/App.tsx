@@ -12,6 +12,8 @@ import FutureQuestionsPanel, { FutureQuestionsLayout } from './FutureQuestionsPa
 import FutureQuestionAnswerForm from './FutureQuestionAnswerForm';
 import { dateValue } from './QuestionDatePicker';
 import ContactProfile from './ContactProfile';
+import ChaptersPanel from './ChaptersPanel';
+import { chapterBoundaries, placeChapterBoundaries, type ChapterBoundary } from './chapterTimeline';
 import ChatListDivider, { loadChatListWidth, maxChatListWidth, saveChatListWidth } from './ChatListDivider';
 import ConversationSearch from './ConversationSearch';
 import { animateMessageDeletion } from './deletionAnimation';
@@ -36,8 +38,8 @@ function Star({pulse=false,ambient=false}:{pulse?:boolean;ambient?:boolean}){
  const bloom=useId().replaceAll(':','');const shape='M30 0C28 46 27 51 0 54C27 57 28 62 30 108C32 62 33 57 60 54C33 51 32 46 30 0Z';
  return <svg className={`star ${pulse?'is-pulsing':''} ${ambient?'is-ambient':''}`} viewBox="0 0 60 108" aria-hidden="true"><defs><filter id={bloom} x="-150%" y="-100%" width="400%" height="300%"><feGaussianBlur stdDeviation="7"/></filter><filter id={`${bloom}-close`} x="-100%" y="-70%" width="300%" height="240%"><feGaussianBlur stdDeviation="2.5"/></filter></defs><g className="star-halo"><path d={shape} fill="white" opacity=".85" filter={`url(#${bloom}-close)`}/><path d={shape} fill="white" filter={`url(#${bloom})`}/><path d={shape} fill="white" opacity=".9" filter={`url(#${bloom})`}/></g><path className="star-core" d={shape} fill="currentColor"/></svg>;
 }
-function ChapterDivider({ title }: { title: string }) {
-  return <section className="chapter-divider" aria-label={title}>
+function ChapterDivider({ title, boundaryId }: { title: string; boundaryId?: string }) {
+  return <section className="chapter-divider" aria-label={title} data-chapter-id={boundaryId} tabIndex={boundaryId ? -1 : undefined}>
     <div className="chapter-rule" aria-hidden="true"><span className="chapter-star"><Star /></span></div>
     <h2>{title}</h2>
   </section>;
@@ -126,6 +128,8 @@ export default function App() {
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [chapterTitle, setChapterTitle] = useState('');
+  const chapterNavigation = useRef<AbortController | null>(null);
+  const [chapterJump, setChapterJump] = useState<{ id: string; chatId: string; ownerId: number } | null>(null);
   const [inlineError,setInlineError]=useState('');
   const [pulse, setPulse] = useState(false);
   const [storageError, setStorageError] = useState(false);
@@ -170,6 +174,9 @@ export default function App() {
   const moments = state.moments.filter(moment => moment.chatId === chat.id);
   const visibleMoments = findMoments(moments, momentQuery ?? '');
   const momentsStatus = live.momentsStatus[chat.id];
+  const chaptersStatus = live.chapters[chat.id];
+  const chapterCards = chaptersStatus?.cards ?? [];
+  const chapterStarts = demoMode ? [] : chapterBoundaries(chat, chapterCards);
   const futureQuestions = live.questions[chat.id];
   const futureQuestionCards = futureQuestions?.cards ?? [];
   const demoQuestions = demoMode && panel === 'questions' ? state.questions.filter(item => item.chatId === chat.id) : [];
@@ -190,7 +197,9 @@ export default function App() {
     }
   }
   const history = live.history[chat.id];
-  const showFirstChapter = demoMode || (!!history && !history.loading && !history.hasOlder && !history.error);
+  const chapterMarkers = !demoMode && messageSearch === null && history && chaptersStatus
+    ? placeChapterBoundaries(chapterStarts, messages, history.hasOlder) : new Map<string | null, ChapterBoundary[]>();
+  const showFirstChapter = demoMode;
   const sending = !demoMode && !!live.sending[chat.id];
   const olderAnchor = useRef<{ chatId: string; height: number; top: number } | null>(null);
   const draftVersions = useRef<Record<string, number>>({});
@@ -270,6 +279,22 @@ export default function App() {
   useEffect(() => {
     if (stage === 'chat' && !demoMode && chat.serverId && (wide || mobileChat)) void live.store?.loadFutureQuestions(chat.id);
   }, [stage, demoMode, chat.id, chat.serverId, wide, mobileChat, live.store]);
+  useEffect(() => {
+    if (stage === 'chat' && !demoMode && chat.serverId && (wide || mobileChat)) void live.store?.loadChapters(chat.id);
+  }, [stage, demoMode, chat.id, chat.serverId, wide, mobileChat, live.store]);
+  useEffect(() => {
+    setChapterJump(null);
+    return () => chapterNavigation.current?.abort();
+  }, [chat.id, account?.id, demoMode]);
+  useLayoutEffect(() => {
+    if (!chapterJump || contactVisible || panel !== null || chapterJump.chatId !== chat.id || chapterJump.ownerId !== account?.id) return;
+    const boundary = scroll.current?.querySelector<HTMLElement>(`[data-chapter-id="${CSS.escape(chapterJump.id)}"]`);
+    if (boundary) {
+      boundary.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      boundary.focus({ preventScroll: true });
+    } else setInlineError('Не удалось найти начало главы. Попробуй открыть её ещё раз.');
+    setChapterJump(null);
+  }, [chapterJump, contactVisible, panel, chat.id, account?.id]);
   useEffect(() => { setAnsweringQuestion(null); }, [chat.id, account?.id]);
   useEffect(() => { setMomentQuery(null); }, [panel, chat.id, demoMode, account?.id]);
   useLayoutEffect(() => {
@@ -443,6 +468,30 @@ export default function App() {
     element?.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});
   }
   function closeSearch(){setMessageSearch(null);setSearchActiveId(null);}
+  async function jumpToChapter(boundary: ChapterBoundary) {
+    if (!live.store || !account) return false;
+    chapterNavigation.current?.abort();
+    const controller = new AbortController();
+    chapterNavigation.current = controller;
+    followBottom.current = false;
+    const loaded = await live.store.loadChapterStart(chat.id, boundary.startedAt, controller.signal);
+    if (!loaded || controller.signal.aborted) return false;
+    setMessageSearch(null);
+    setPanel(null);
+    setContactOpen(false);
+    setChapterJump({ id: boundary.id, chatId: chat.id, ownerId: account.id });
+    return true;
+  }
+  function renderTimelineMarkers(beforeMessageId: string | null) {
+    const markers = (chapterMarkers.get(beforeMessageId) ?? []).map(boundary => ({
+      at: Date.parse(boundary.startedAt),
+      element: <ChapterDivider key={boundary.id} boundaryId={boundary.id} title={boundary.title} />,
+    }));
+    const questions = questionNotices.get(beforeMessageId) ?? [];
+    const notices = renderQuestionNotices(beforeMessageId);
+    for (let index = 0; index < questions.length; index++) markers.push({ at: Date.parse(questions[index].opens_at), element: notices[index] });
+    return markers.sort((a, b) => a.at - b.at).map(marker => marker.element);
+  }
   function renderQuestionNotices(beforeMessageId: string | null) {
     return (questionNotices.get(beforeMessageId) ?? []).map(card => {
       const isAnswering = answeringQuestion?.chatId === chat.id && answeringQuestion.id === card.id;
@@ -691,15 +740,16 @@ export default function App() {
           {!demoMode && history?.error && <p className="history-error" role="alert">{history.error}</p>}
           {showFirstChapter && <ChapterDivider title="Первое знакомство" />}
           {demoMode && <div className="date-separator"><span>Сегодня</span></div>}
-          {messages.length === 0 && <div className="conversation-empty">{!showFirstChapter && <Star ambient />}<p>{!demoMode && (history?.loading || live.loading) ? 'Загружаем переписку…' : messageSearch ? 'Сообщения не найдены' : 'С чего начнём разговор?'}</p></div>}
+          {messages.length === 0 && renderTimelineMarkers(null)}
+          {messages.length === 0 && <div className="conversation-empty">{!showFirstChapter && chapterMarkers.size === 0 && <Star ambient />}<p>{!demoMode && (history?.loading || live.loading) ? 'Загружаем переписку…' : messageSearch ? 'Сообщения не найдены' : 'С чего начнём разговор?'}</p></div>}
           {messages.flatMap((message, index) => {
             const original = message.replyToId ? messagesById.get(message.replyToId) : undefined;
-            return [...renderQuestionNotices(message.id), <Fragment key={message.id}>
+            return [...renderTimelineMarkers(message.id), <Fragment key={message.id}>
             {message.createdAt && (!messages[index - 1]?.createdAt || new Date(messages[index - 1].createdAt!).toDateString() !== new Date(message.createdAt).toDateString()) && <div className="date-separator"><span>{dayLabel(message.createdAt)}</span></div>}
             {!demoMode && readEntry.boundary === message.id && <div className="unread-divider" data-unread-boundary><span>Новые сообщения</span></div>}
             {message.kind === 'chapter' ? <ChapterDivider title={message.text} /> : <MessageBubble message={message} pinned={pinnedIds.has(message.id)} quote={original ? quoteFor(original) : undefined} selected={selectedIds.includes(message.id)} selecting={selectedIds.length > 0} active={messageMenu?.message.id === message.id || highlightId === message.id} searchQuery={messageSearch||''} searchActive={searchActiveId===message.id} onMenu={setMessageMenu} onSelect={toggleSelected} onJump={jumpToMessage} />}
             </Fragment>];
-          }).concat(renderQuestionNotices(null))}
+          }).concat(messages.length ? renderTimelineMarkers(null) : [])}
         </div></div>
         <div ref={composerArea} className={`composer-area ${recordingActive?'is-recording':''}`}>
           {selectedIds.length>0?<div className="selection-dock" aria-label="Действия с выбранными сообщениями"><IconButton label="Удалить выбранные сообщения" disabled={deleting} className="glass round" onClick={()=>requestDelete([...selectedIds])}><Trash2/></IconButton><span className="selection-count">Выбрано: {selectedIds.length}{!demoMode && selectedIds.length === 100 ? ' · максимум 100' : ''}</span><div className="selection-dock-actions"><IconButton label="Копировать выбранные сообщения" onClick={()=>void copyMessages(selectedIds)}><Copy/></IconButton><IconButton label="Сохранить выбранные сообщения в момент" onClick={()=>openMoment([...selectedIds])}><Bookmark/></IconButton><IconButton label="Переслать выбранные сообщения" disabled={forwarding} className="glass round" onClick={()=>openForward([...selectedIds])}><Forward/></IconButton></div></div>:<>
@@ -719,12 +769,11 @@ export default function App() {
           </>}
           {inlineError && !forwardIds && <p className="composer-feedback" role="alert">{inlineError}<button aria-label="Закрыть сообщение об ошибке" onClick={()=>setInlineError('')}><X size={14}/></button></p>}
         </div></div>
-        {contactVisible&&<ContactProfile key={chat.id} open={contactOpen} chat={chat} state={state} onClose={()=>setContactOpen(false)} onStory={setPanel} onCall={()=>setModal('calls')} onSearch={()=>{setContactOpen(false);setMessageSearch('');setTimeout(()=>conversation.current?.querySelector<HTMLInputElement>('.conversation-search input')?.focus(),500);}}/>}
+        {contactVisible&&<ContactProfile key={chat.id} open={contactOpen} chat={chat} state={state} serverChapterCount={demoMode ? undefined : chapterCards.length + Number(chapterStarts.some(chapter => chapter.id.startsWith('initial-')))} onClose={()=>setContactOpen(false)} onStory={setPanel} onCall={()=>setModal('calls')} onSearch={()=>{setContactOpen(false);setMessageSearch('');setTimeout(()=>conversation.current?.querySelector<HTMLInputElement>('.conversation-search input')?.focus(),500);}}/>}
       </section>}
       {panel && <dialog ref={historyDialog} className={`history-panel ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label="История знакомства" onCancel={event => {event.preventDefault();closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}><header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>История знакомства</h2></div><IconButton label={contactOpen?"Назад к профилю":"Закрыть историю"} onClick={closeHistory}>{contactOpen?<ArrowLeft/>:<X/>}</IconButton></header><div className="panel-tabs" role="tablist" aria-label="История знакомства">{([['moments', 'Моменты'], ['questions', 'Будущее'], ['chapters', 'Главы']] as const).map(([tab, label]) => <button key={tab} role="tab" aria-selected={panel === tab} onClick={() => setPanel(tab)}>{label}</button>)}</div><div className="panel-content">
-        {demoMode ? <p className="panel-demo">Демонстрация механик. Ответы собеседника моделируются вручную.</p>
-          : panel === 'chapters' && <p className="panel-demo">Этот раздел пока доступен в демо.</p>}
-        <fieldset className="feature-fields" disabled={!demoMode && panel === 'chapters'}>
+        {demoMode && <p className="panel-demo">Демонстрация механик. Ответы собеседника моделируются вручную.</p>}
+        <fieldset className="feature-fields">
         {panel === 'moments' && <>
           <div className="moments-heading">
             <h3>Не забывайте важные моменты</h3>
@@ -774,7 +823,19 @@ export default function App() {
             }))} />
           </>}
         />}
-        {panel === 'chapters' && <><h3>Давай начнём заново</h3><p className="muted">Новая глава начинается, когда вы оба согласны. Всё, что было до неё, остаётся.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); if (!chapterTitle.trim()) return; setState(previous => ({ ...previous, chapters: [...previous.chapters, { id: id(), chatId: chat.id, title: chapterTitle.trim(), status: 'pending' }] })); setChapterTitle(''); }}><label>Название главы<input value={chapterTitle} onChange={event => setChapterTitle(event.target.value)} placeholder="Чуть ближе" maxLength={70} required /></label><button className="primary">Предложить новую главу</button></form>{state.chapters.filter(item => item.chatId === chat.id).map(item => <article className="history-card" key={item.id}><span className="eyebrow">{item.status === 'pending' ? 'ЖДЁМ СОГЛАСИЯ' : 'НОВАЯ ГЛАВА'}</span><h3>{item.title}</h3>{item.status === 'pending' ? <button className="secondary" onClick={() => { setState(previous => acceptChapter(previous, item.id));  }}>Смоделировать согласие {chat.name}</button> : <p className="muted">Вы решили продолжить с новой страницы.</p>}</article>)}</>}
+        {panel === 'chapters' && !demoMode && live.store && <ChaptersPanel
+          key={chat.id}
+          cards={chapterCards}
+          initial={chapterStarts.find(chapter => chapter.id.startsWith('initial-'))}
+          ownId={account.id}
+          loading={chaptersStatus?.loading ?? true}
+          error={chaptersStatus?.error}
+          onReload={() => void live.store?.loadChapters(chat.id)}
+          onCreate={title => live.store?.createChapter(chat.id, title) ?? Promise.resolve(false)}
+          onDecide={(id, status) => live.store?.decideChapter(chat.id, id, status) ?? Promise.resolve(false)}
+          onJump={jumpToChapter}
+        />}
+        {panel === 'chapters' && demoMode && <><h3>Давай начнём заново</h3><p className="muted">Новая глава начинается, когда вы оба согласны. Всё, что было до неё, остаётся.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); if (!chapterTitle.trim()) return; setState(previous => ({ ...previous, chapters: [...previous.chapters, { id: id(), chatId: chat.id, title: chapterTitle.trim(), status: 'pending' }] })); setChapterTitle(''); }}><label>Название главы<input value={chapterTitle} onChange={event => setChapterTitle(event.target.value)} placeholder="Чуть ближе" maxLength={70} required /></label><button className="primary">Предложить новую главу</button></form>{state.chapters.filter(item => item.chatId === chat.id).map(item => <article className="history-card" key={item.id}><span className="eyebrow">{item.status === 'pending' ? 'ЖДЁМ СОГЛАСИЯ' : 'НОВАЯ ГЛАВА'}</span><h3>{item.title}</h3>{item.status === 'pending' ? <button className="secondary" onClick={() => { setState(previous => acceptChapter(previous, item.id));  }}>Смоделировать согласие {chat.name}</button> : <p className="muted">Вы решили продолжить с новой страницы.</p>}</article>)}</>}
       </fieldset></div>{wide && <ChatListDivider width={sidebarWidth} maximum={maximumChatListWidth} onResize={resizeChatList} inHistory />}</dialog>}
     </main>}
     {messageMenu && <MessageContextMenu live={!demoMode} forwardBusy={forwarding} forwardTargets={state.chats} onForwardTo={target=>void performForward(selectedIds.includes(messageMenu.message.id)?selectedIds:[messageMenu.message.id],target)} target={messageMenu} pinned={pinnedIds.has(messageMenu.message.id)} pinBusy={!demoMode && live.pinBusy[chat.id]} onClose={() => setMessageMenu(null)} onReply={() => beginReply(messageMenu.message)} onCopy={() => { void copyMessages([messageMenu.message.id]); }} onEdit={() => beginEdit(messageMenu.message)} onPin={() => { void changePin(messageMenu.message, !pinnedIds.has(messageMenu.message.id)); }} onForward={() => openForward(selectedIds.includes(messageMenu.message.id) ? [...selectedIds] : [messageMenu.message.id])} onSelect={() => setSelectedIds([messageMenu.message.id])} onMoment={() => openMoment(selectedIds.includes(messageMenu.message.id)?selectedIds:[messageMenu.message.id])} onDelete={() => requestDelete([messageMenu.message.id])} />}
@@ -798,7 +859,7 @@ export default function App() {
     </Modal>}
     {modal === 'settings' && account && <Modal title="Настройки" onClose={closeModal}>
       <AccountSettings user={account} onUpdate={acceptUser} onExpired={clearUser} />
-      <p className="muted">Поиск, чаты и текстовые сообщения подключены к серверу. Медиа и история знакомства пока доступны в демо.</p>
+      <p className="muted">Фото, голосовые сообщения и видеокружки пока доступны в демо.</p>
       <button className="setting-row" onClick={notify}><Bell /><span>Проверить уведомление<small>Яркая вспышка звезды · пауза 2,5 секунды</small></span><ChevronRight /></button>
       <button className="setting-row" disabled={loggingOut} onClick={() => { void signOut(); }}><LogOut /><span>{loggingOut ? 'Выходим…' : 'Выйти из аккаунта'}</span><ChevronRight /></button>
       {accountError && <p className="auth-error" role="alert">{accountError}</p>}

@@ -29,6 +29,25 @@
 .conversation-empty>.star{width:30px;height:54px;margin:0;color:#f7f6f4;filter:none;animation:none}
 .conversation-empty>p{margin:0}
 .chapter-divider{align-self:stretch;flex-shrink:0;margin:16px 0 19px;text-align:center}
+.chapter-divider[data-chapter-id]{scroll-margin-top:110px}
+.chapter-divider:focus-visible{outline:1px solid #a73b54;outline-offset:5px;border-radius:6px}
+.chapters-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.chapters-heading h3{margin:0}
+.chapters-heading .icon-button{width:40px;height:40px}
+.chapters-search{display:flex;align-items:center;gap:9px;padding:3px 10px 3px 13px;margin:12px 0;border-radius:24px}
+.chapters-search input{min-width:0;flex:1;background:none;border:0;font-size:16px;color:inherit}
+.chapters-search .icon-button{width:36px;height:36px}
+.chapter-create{margin-top:15px}
+.chapter-status{display:inline-flex;align-items:center;gap:6px;color:#a6a1ab;font-size:11px}
+.chapter-status.accepted{color:#e3a7b5}
+.chapter-status.pending{color:#c9b7be}
+.chapter-card h3{margin:8px 0}
+.chapter-card .eyebrow{display:block;font-size:10px;letter-spacing:.03em}
+.chapter-card .muted{margin:10px 0 0}
+.chapter-decisions{display:flex;gap:10px;margin-top:14px}
+.chapter-decisions button{flex:1;min-width:0;min-height:42px;border-radius:24px;font-size:14px}
+.chapter-card .chapter-decisions .secondary{width:auto;font-size:14px}
+.chapter-jump{display:flex;align-items:center;gap:7px;min-height:40px;margin-top:10px;padding:0;color:#e4a7b6;text-align:left;font-size:13px}
 .chapter-divider h2{margin:1px 0 0;color:#e9dee1;font-size:14px;line-height:1.4;font-weight:500;overflow-wrap:anywhere}
 .chapter-rule{display:flex;align-items:center;gap:11px}
 .chapter-rule::before,.chapter-rule::after{content:'';flex:1;height:1px;background:linear-gradient(to right,#4a1421,#b23b58)}

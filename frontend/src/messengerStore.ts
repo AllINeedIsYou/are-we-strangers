@@ -1,15 +1,17 @@
 import { ApiError, friendlyError } from './authApi.ts';
 import { chatKey, isDeletedMessages, isFutureQuestionEvent, isMomentCard, isReadReceipt, isServerMessage, mergeMessages, messengerApi, toChat, toMessage, toMoment, type DeletedMessages, type ReadReceipt, type ServerChat, type ServerFutureQuestion, type ServerMessage, type ServerMomentCard } from './messengerApi.ts';
 import type { DemoState, Message } from './domain.ts';
+import { isChapterEvent, type ChapterDecision, type ServerChapter } from './messengerApi.ts';
 
 type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'offline';
 type HistoryStatus = { loading: boolean; hasOlder: boolean; error: string };
 type MomentsStatus = { loading: boolean; error: string };
 type QuestionList = { cards: ServerFutureQuestion[]; loading: boolean; error: string };
+type ChapterList = { cards: ServerChapter[]; loading: boolean; error: string };
 export type MessengerSnapshot = { state: DemoState; loading: boolean; error: string; connection: ConnectionStatus;
-  history: Record<string, HistoryStatus>; sending: Record<string, boolean>; pins: Record<string, Message[]>; pinBusy: Record<string, boolean>; momentsStatus: Record<string, MomentsStatus>; questions: Partial<Record<string, QuestionList>> };
+  history: Record<string, HistoryStatus>; sending: Record<string, boolean>; pins: Record<string, Message[]>; pinBusy: Record<string, boolean>; momentsStatus: Record<string, MomentsStatus>; questions: Partial<Record<string, QuestionList>>; chapters: Partial<Record<string, ChapterList>> };
 const emptyState = (): DemoState => ({ chats: [], messages: [], moments: [], questions: [], chapters: [] });
-export const emptySnapshot = (): MessengerSnapshot => ({ state: emptyState(), loading: true, error: '', connection: 'connecting', history: {}, sending: {}, pins: {}, pinBusy: {}, momentsStatus: {}, questions: {} });
+export const emptySnapshot = (): MessengerSnapshot => ({ state: emptyState(), loading: true, error: '', connection: 'connecting', history: {}, sending: {}, pins: {}, pinBusy: {}, momentsStatus: {}, questions: {}, chapters: {} });
 type Options = { api?: typeof messengerApi; connect?: () => WebSocket; onExpired: () => void; onIncoming: (chatId: string) => void; onDelete?: (ids: string[], signal: AbortSignal) => Promise<void> };
 
 // Only confirmed server messages enter this store. POST and WS merge by the same ID.
@@ -36,6 +38,8 @@ export class MessengerStore {
   private pinRequests = new Map<string, symbol>();
   private momentRequests = new Set<string>();
   private questionRequests = new Map<string, boolean>();
+  private chapterRequests = new Map<string, boolean>();
+  private chapterWrites = new Set<string>();
   private sequence = 0;
   private versions = new Map<number, number>();
   private readIds = new Set<number>();
@@ -74,6 +78,8 @@ export class MessengerStore {
     this.pinRequests.clear();
     this.momentRequests.clear();
     this.questionRequests.clear();
+    this.chapterRequests.clear();
+    this.chapterWrites.clear();
     const socket = this.socket; this.socket = null;
     if (socket) { socket.onclose = null; socket.onerror = null; socket.onmessage = null; socket.close(); }
   }
@@ -101,6 +107,7 @@ export class MessengerStore {
         void this.loadPins(this.selectedChat);
         if (this.snapshot.momentsStatus[this.selectedChat]) void this.loadMoments(this.selectedChat);
         if (this.snapshot.questions[this.selectedChat]) void this.loadFutureQuestions(this.selectedChat);
+        if (this.snapshot.chapters[this.selectedChat]) void this.loadChapters(this.selectedChat);
         this.heartbeat = setInterval(() => {
           if (!valid() || socket.readyState !== 1) return;
           try {
@@ -117,6 +124,10 @@ export class MessengerStore {
       else if ((data.type === 'future_question.created' || data.type === 'future_question.updated') && isFutureQuestionEvent(data)) {
         const key = chatKey(data.chat_id);
         if (this.snapshot.questions[key]) void this.loadFutureQuestions(key);
+      }
+      else if ((data.type === 'chapter.created' || data.type === 'chapter.updated') && isChapterEvent(data)) {
+        const key = chatKey(data.chat_id);
+        if (this.snapshot.chapters[key]) void this.loadChapters(key);
       }
       else if (data.type === 'chat.pins_changed' && 'chat_id' in data && typeof data.chat_id === 'number') {
         const key = chatKey(data.chat_id);
@@ -149,7 +160,71 @@ export class MessengerStore {
     void this.loadPins(this.selectedChat);
     if (this.snapshot.momentsStatus[this.selectedChat]) void this.loadMoments(this.selectedChat);
     if (this.snapshot.questions[this.selectedChat]) void this.loadFutureQuestions(this.selectedChat);
+    if (this.snapshot.chapters[this.selectedChat]) void this.loadChapters(this.selectedChat);
   };
+  private updateChapters(key: string, patch: Partial<ChapterList>) {
+    const previous = this.snapshot.chapters[key] ?? { cards: [], loading: false, error: '' };
+    this.update({ chapters: { ...this.snapshot.chapters, [key]: { ...previous, ...patch } } });
+  }
+  private mergeChapters(key: string, incoming: ServerChapter[]) {
+    const cards = new Map(this.snapshot.chapters[key]?.cards.map(card => [card.id, card]));
+    for (const card of incoming) {
+      const previous = cards.get(card.id);
+      // A delayed pending response cannot undo a confirmed decision.
+      if (!previous || previous.status === 'pending') cards.set(card.id, card);
+    }
+    this.updateChapters(key, { cards: [...cards.values()].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id) });
+  }
+  loadChapters = async (key: string) => {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!chatId || !this.active) return;
+    if (this.chapterRequests.has(key)) {
+      this.chapterRequests.set(key, true);
+      return;
+    }
+    const epoch = this.epoch;
+    this.chapterRequests.set(key, false);
+    this.updateChapters(key, { loading: true, error: '' });
+    try {
+      const cards = await this.api.chapters(chatId, this.abort.signal);
+      if (this.current(epoch)) this.mergeChapters(key, cards);
+    } catch (error) {
+      if (!this.current(epoch)) return;
+      if (error instanceof ApiError && error.status === 401) this.handleError(error, epoch);
+      else this.updateChapters(key, { error: friendlyError(error) });
+    } finally {
+      if (this.current(epoch)) {
+        const refresh = this.chapterRequests.get(key);
+        this.chapterRequests.delete(key);
+        if (refresh) void this.loadChapters(key);
+        else this.updateChapters(key, { loading: false });
+      }
+    }
+  };
+  private async saveChapter(key: string, operation: string, request: (chatId: number, signal: AbortSignal) => Promise<ServerChapter>) {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    const lock = `${key}:${operation}`;
+    if (!chatId || !this.active || this.chapterWrites.has(lock)) return false;
+    const epoch = this.epoch;
+    this.chapterWrites.add(lock);
+    try {
+      const card = await request(chatId, this.abort.signal);
+      if (!this.current(epoch)) return false;
+      this.mergeChapters(key, [card]);
+      return true;
+    } catch (error) {
+      if (!this.current(epoch)) return false;
+      if (error instanceof ApiError && error.status === 401) this.handleError(error, epoch);
+      else void this.loadChapters(key);
+      throw error;
+    } finally {
+      if (this.current(epoch)) this.chapterWrites.delete(lock);
+    }
+  }
+  createChapter = (key: string, title: string) =>
+    this.saveChapter(key, 'create', (chatId, signal) => this.api.createChapter(chatId, title, signal));
+  decideChapter = (key: string, id: number, status: ChapterDecision) =>
+    this.saveChapter(key, String(id), (chatId, signal) => this.api.decideChapter(chatId, id, status, signal));
   private updateQuestions(key: string, patch: Partial<QuestionList>) {
     const previous = this.snapshot.questions[key] ?? { cards: [], loading: false, error: '' };
     this.update({ questions: { ...this.snapshot.questions, [key]: { ...previous, ...patch } } });
@@ -488,6 +563,34 @@ export class MessengerStore {
     } catch (error) {
       if (this.current(epoch)) { this.historyStatus(key, { loading: false, error: friendlyError(error) }); this.handleError(error, epoch); }
     } finally { if (this.current(epoch)) this.olderJobs.delete(key); }
+  };
+  loadChapterStart = async (key: string, startedAt: string, signal: AbortSignal) => {
+    const epoch = this.epoch;
+    const started = Date.parse(startedAt);
+    if (!Number.isFinite(started)) return false;
+    const cancellation = AbortSignal.any([signal, this.abort.signal]);
+    if (this.refreshJob) await this.refreshJob;
+    while (this.current(epoch) && this.selectedChat === key && !cancellation.aborted) {
+      const history = this.snapshot.history[key];
+      if (!history) return false;
+      if (history.loading) {
+        await new Promise<void>(resolve => {
+          const done = () => { unsubscribe(); cancellation.removeEventListener('abort', done); resolve(); };
+          const unsubscribe = this.subscribe(() => { if (!this.snapshot.history[key]?.loading) done(); });
+          cancellation.addEventListener('abort', done, { once: true });
+          if (cancellation.aborted) done();
+        });
+        continue;
+      }
+      if (history.error) throw new ApiError(0, history.error);
+      const messages = this.snapshot.state.messages.filter(message => message.chatId === key);
+      const oldest = messages.reduce((time, message) => Math.min(time, Date.parse(message.createdAt ?? '') || Infinity), Infinity);
+      if (!history.hasOlder || oldest <= started) return true;
+      await this.loadOlder(key);
+      if (this.snapshot.history[key]?.error) throw new ApiError(0, this.snapshot.history[key].error);
+      if (this.snapshot.history[key]?.hasOlder && this.snapshot.state.messages.filter(message => message.chatId === key).length === messages.length) return false;
+    }
+    return false;
   };
   createChat = async (partnerId: number) => {
     const epoch = this.epoch;

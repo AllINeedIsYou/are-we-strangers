@@ -2,7 +2,7 @@ from psycopg.errors import UniqueViolation
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func,and_
-from backend.app.models import Chats, Users, Messages
+from backend.app.models import Chats, Users, Messages,Chapters
 from fastapi import HTTPException
 from datetime import datetime,timezone
 from backend.app.services.message_visibility import message_visible_to
@@ -29,6 +29,18 @@ def get_or_create_chat(session:Session,user:Users,partner_id:int):
                 created_at=now
             )
             session.add(new_chat)
+            session.flush()
+
+            new_chapter=Chapters(
+                chat_id=new_chat.id,
+                author_id=user.id,
+                title="Первое знакомство",
+                status='accepted',
+                created_at=now,
+                started_at=now
+            )
+
+            session.add(new_chapter)
             session.commit()
             session.refresh(new_chat)
             return new_chat, partner

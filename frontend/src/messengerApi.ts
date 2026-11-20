@@ -15,9 +15,25 @@ export type ServerFutureQuestion = {
   id: number; chat_id: number; author_id: number; text: string; opens_at: string; created_at: string;
   my_answer: string | null; partner_answer: string | null;
 };
+export type ChapterDecision = 'accepted' | 'rejected';
+export type ServerChapter = {
+  id: number; chat_id: number; author_id: number; title: string;
+  status: 'pending' | ChapterDecision; created_at: string; started_at: string | null;
+};
 export const chatKey = (id: number) => `server-${id}`;
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const date = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
+export function isChapter(value: unknown): value is ServerChapter {
+  const chapter = value as ServerChapter | null;
+  return !!chapter && positive(chapter.id) && positive(chapter.chat_id) && positive(chapter.author_id)
+    && typeof chapter.title === 'string' && chapter.title.trim().length > 0 && Array.from(chapter.title).length <= 70
+    && date(chapter.created_at) && (chapter.status === 'pending' || chapter.status === 'accepted' || chapter.status === 'rejected')
+    && (chapter.status === 'accepted' ? date(chapter.started_at) : chapter.started_at === null);
+}
+export function isChapterEvent(value: unknown): value is { chat_id: number; chapter_id: number } {
+  const event = value as { chat_id?: unknown; chapter_id?: unknown } | null;
+  return !!event && positive(event.chat_id) && positive(event.chapter_id);
+}
 function isFutureQuestion(value: unknown): value is ServerFutureQuestion {
   const question = value as ServerFutureQuestion | null;
   return !!question && positive(question.id) && positive(question.chat_id) && positive(question.author_id)
@@ -70,6 +86,21 @@ function list<T>(value: unknown, guard: (value: unknown) => value is T): T[] {
   return value;
 }
 export const messengerApi = {
+  chapters: async (chatId: number, signal?: AbortSignal) => {
+    const chapters = list(await apiRequest(`/api/chats/${chatId}/chapters`, undefined, { signal }), isChapter);
+    if (chapters.some(chapter => chapter.chat_id !== chatId)) throw new ApiError(0, 'Сервер вернул главы другого чата');
+    return chapters;
+  },
+  createChapter: async (chatId: number, title: string, signal?: AbortSignal) => {
+    const chapter = checked(await apiRequest(`/api/chats/${chatId}/chapters`, { title }, { signal }), isChapter);
+    if (chapter.chat_id !== chatId || chapter.status !== 'pending') throw new ApiError(0, 'Некорректный ответ о предложении главы');
+    return chapter;
+  },
+  decideChapter: async (chatId: number, id: number, status: ChapterDecision, signal?: AbortSignal) => {
+    const chapter = checked(await apiRequest(`/api/chats/${chatId}/chapters/${id}`, { status }, { method: 'PATCH', signal }), isChapter);
+    if (chapter.chat_id !== chatId || chapter.id !== id || chapter.status !== status) throw new ApiError(0, 'Некорректный ответ о решении по главе');
+    return chapter;
+  },
   search: async (q: string, signal?: AbortSignal) => list(await apiRequest(`/api/user/search?${new URLSearchParams({ q: q.trim() })}`, undefined, { signal }), isPublicUser),
   chats: async (signal?: AbortSignal) => list(await apiRequest('/api/chats', undefined, { signal }), isChat),
   createChat: async (partner_id: number, signal?: AbortSignal) => checked(await apiRequest('/api/chats', { partner_id }, { signal }), isChat),

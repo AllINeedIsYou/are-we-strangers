@@ -6,7 +6,7 @@ from backend.app.api.routes.chats import chats_router
 from backend.app.api.routes.ws import ws_router
 from backend.app.api.routes.moments import moments_router
 from backend.app.api.routes.future_questions import future_questions_router
-
+from backend.app.api.routes.chapters import chapters_router
 api_router=APIRouter(prefix='/api')
 
 api_router.include_router(auth_router)
@@ -16,7 +16,7 @@ api_router.include_router(message_router)
 api_router.include_router(ws_router)
 api_router.include_router(moments_router)
 api_router.include_router(future_questions_router)
-#api_router.include_router()
+api_router.include_router(chapters_router)
 #api_router.include_router()
 #api_router.include_router()
 
