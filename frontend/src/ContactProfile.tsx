@@ -3,6 +3,7 @@ import { Archive, ArrowLeft, Bell, BellOff, BookOpen, Bookmark, ChevronRight, Cl
 import Avatar from './Avatar';
 import MediaView, { useMediaURL } from './MediaView';
 import type { Chat, DemoState, MediaAsset } from './domain';
+import { profileBirthday } from './profile';
 
 type ProfileTab = 'media' | 'files' | 'links' | 'voice' | 'gif';
 type StoryTab = 'moments' | 'questions' | 'chapters' | 'archive';
@@ -53,7 +54,7 @@ export default function ContactProfile({open,chat,state,serverChapterCount,onClo
             <div id="details-panel-about" className={`profile-about details-pane ${details==='about'?'details-pane-active':''}`} role="tabpanel" aria-labelledby="details-tab-about" aria-hidden={details!=='about'} inert={details!=='about'}>
               <ProfileField label="Имя пользователя" value={chat.username?`@${chat.username.replace(/^@/,'')}`:undefined} empty="Не указано" copyable/>
               <ProfileField label="Номер телефона" value={chat.phone} empty="Не указан" copyable/>
-              <ProfileField label="День рождения" value={chat.birthday} empty="Не указан"/>
+              <ProfileField label="День рождения" value={profileBirthday(chat.birthday)} empty="Не указан"/>
               <ProfileField label="О себе" value={chat.bio} empty="Пока ничего не добавлено"/>
             </div>
             <div id="details-panel-story" className={`profile-story details-pane ${details==='story'?'details-pane-active':''}`} role="tabpanel" aria-labelledby="details-tab-story" aria-hidden={details!=='story'} inert={details!=='story'}>

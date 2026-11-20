@@ -1,7 +1,9 @@
 from sqlalchemy.orm import Mapped,mapped_column
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import String, DateTime, func, Date
 from backend.database.base import Base
-from datetime import datetime,timezone
+from datetime import datetime, timezone, date
+
+
 class Users(Base):
     __tablename__ = 'users'
 
@@ -14,6 +16,10 @@ class Users(Base):
     name:Mapped[str]=mapped_column(String(40))
 
     username: Mapped[str] = mapped_column(String(32),unique=True)
+
+    bio:Mapped[str|None]=mapped_column(String(500))
+
+    birthday:Mapped[date|None]=mapped_column(Date)
 
     password_hash:Mapped[str]=mapped_column(String(255))
 

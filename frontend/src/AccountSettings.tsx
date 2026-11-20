@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Mail } from 'lucide-react';
+import { Check, ChevronRight, KeyRound, Mail, Phone } from 'lucide-react';
 import { ApiError, authApi, friendlyError, type Account } from './authApi';
 
 type Props = { user: Account; onUpdate: (user: Account) => void; onExpired: () => void };
@@ -10,6 +10,7 @@ export default function AccountSettings({ user, onUpdate, onExpired }: Props) {
   const [sent, setSent] = useState(false);
   const [retryAt, setRetryAt] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const [notice, setNotice] = useState<'email' | 'password' | 'phone' | null>(null);
   const mounted = useRef(true);
   const remaining = Math.max(0, Math.ceil((retryAt - now) / 1000));
   const verified = !!user.email_verified_at;
@@ -20,23 +21,6 @@ export default function AccountSettings({ user, onUpdate, onExpired }: Props) {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [retryAt]);
-  useEffect(() => {
-    async function update() {
-      if (document.visibilityState !== 'visible') return;
-      try {
-        const current = await authApi.me();
-        if (!mounted.current) return;
-        if (current.id === user.id) onUpdate(current);
-        else onExpired();
-      } catch (caught) {
-        if (mounted.current && caught instanceof ApiError && caught.status === 401) onExpired();
-      }
-    }
-    window.addEventListener('focus', update);
-    document.addEventListener('visibilitychange', update);
-    return () => { window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update); };
-  }, [user.id, onUpdate, onExpired]);
-
   async function request() {
     if (busy || verified || remaining) return;
     setBusy(true); setError('');
@@ -61,10 +45,31 @@ export default function AccountSettings({ user, onUpdate, onExpired }: Props) {
 
   return <section className="account-settings" aria-label="Аккаунт">
     <div className="account-identity"><strong>{user.name}</strong><span>{user.username}</span></div>
-    <button className="setting-row email-setting" disabled={busy || verified || remaining > 0} onClick={() => { void request(); }}>
-      {verified ? <Check /> : <Mail />}<span>{user.email}<small>{verified ? 'Почта подтверждена' : busy ? 'Отправляем письмо…' : remaining ? `Повторная отправка через ${remaining} с` : sent ? 'Отправить письмо ещё раз' : 'Не подтверждена · отправить письмо'}</small></span>{!verified && <ChevronRight />}
-    </button>
-    {sent && !verified && <p className="auth-description" role="status">Письмо отправлено. Перейди по ссылке в письме в течение 15 минут. Если письма нет, проверь «Спам».</p>}
-    {error && <p className="auth-error" role="alert">{error}</p>}
+    <details className="account-security-group">
+      <summary><Mail /><span>Почта<small>{user.email}</small></span><ChevronRight /></summary>
+      <div className="account-security-actions">
+        <button className="security-action" onClick={() => setNotice('email')}><span>Сменить почту</span><ChevronRight /></button>
+        <button className="security-action" disabled={busy || verified || remaining > 0} onClick={() => { void request(); }}>
+          <span>{verified ? 'Почта подтверждена' : 'Подтвердить почту'}{!verified && <small>{busy ? 'Отправляем письмо…' : remaining ? `Повторная отправка через ${remaining} с` : sent ? 'Отправить письмо ещё раз' : 'Отправить ссылку на почту'}</small>}</span>{verified ? <Check /> : <ChevronRight />}
+        </button>
+        {notice === 'email' && <p className="security-notice" role="status">Смена почты через код Telegram-бота появится позже.</p>}
+        {sent && !verified && <p className="auth-description" role="status">Письмо отправлено. Перейди по ссылке в течение 15 минут. Если письма нет, проверь «Спам».</p>}
+        {error && <p className="auth-error" role="alert">{error}</p>}
+      </div>
+    </details>
+    <details className="account-security-group">
+      <summary><KeyRound /><span>Пароль</span><ChevronRight /></summary>
+      <div className="account-security-actions">
+        <button className="security-action" onClick={() => setNotice('password')}><span>Сменить пароль</span><ChevronRight /></button>
+        {notice === 'password' && <p className="security-notice" role="status">Смена пароля через почту появится позже.</p>}
+      </div>
+    </details>
+    <details className="account-security-group">
+      <summary><Phone /><span>Телефон<small>{user.phone.replace(/^tel:/, '')}</small></span><ChevronRight /></summary>
+      <div className="account-security-actions">
+        <button className="security-action" onClick={() => setNotice('phone')}><span>Сменить телефон</span><ChevronRight /></button>
+        {notice === 'phone' && <p className="security-notice" role="status">Смена номера телефона пока недоступна.</p>}
+      </div>
+    </details>
   </section>;
 }

@@ -46,6 +46,28 @@ export default function useAuthSession() {
     void refresh();
     return () => { revision.current += 1; controller.current?.abort(); };
   }, [refresh]);
+  useEffect(() => {
+    if (!user) return;
+    const userId = user.id;
+    let pending: AbortController | null = null;
+    const sync = async () => {
+      if (document.visibilityState !== 'visible') return;
+      pending?.abort();
+      const abort = new AbortController(); pending = abort;
+      const started = revision.current;
+      try {
+        const current = await authApi.me(abort.signal);
+        if (abort.signal.aborted || revision.current !== started) return;
+        if (current.id === userId) acceptUser(current);
+        else clearUser();
+      } catch (error) {
+        if (!abort.signal.aborted && revision.current === started && error instanceof ApiError && error.status === 401) clearUser();
+      }
+    };
+    window.addEventListener('focus', sync);
+    document.addEventListener('visibilitychange', sync);
+    return () => { pending?.abort(); window.removeEventListener('focus', sync); document.removeEventListener('visibilitychange', sync); };
+  }, [user?.id, acceptUser, clearUser]);
 
   return { user, checking, sessionError, acceptUser, clearUser, refresh };
 }

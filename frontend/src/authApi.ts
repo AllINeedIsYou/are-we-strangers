@@ -4,10 +4,14 @@ export type Account = {
   email: string;
   name: string;
   username: string;
+  bio?: string | null;
+  birthday?: string | null;
   created_at: string;
   phone_verified_at: string | null;
   email_verified_at: string | null;
 };
+
+export type ProfileUpdate = { name?: string; username?: string; bio?: string | null; birthday?: string | null };
 
 export type PhoneChallenge = {
   verification_token: string;
@@ -28,7 +32,7 @@ export class ApiError extends Error {
 
 const fieldNames: Record<string, string> = {
   phone: 'Номер телефона', email: 'Почта', name: 'Имя', username: 'Юзернейм',
-  password: 'Пароль', login: 'Логин', code: 'Код', token: 'Ссылка',
+  password: 'Пароль', login: 'Логин', code: 'Код', token: 'Ссылка', bio: 'О себе', birthday: 'Дата рождения',
 };
 
 function errorMessage(payload: unknown, status: number): string {
@@ -82,13 +86,17 @@ function request<T>(path: string, body?: unknown, options: { method?: string; si
   return apiRequest<T>(`/api/auth${path}`, body, options);
 }
 
-async function accountRequest(path: string, body?: unknown, signal?: AbortSignal): Promise<Account> {
-  const user = await request<Account>(path, body, { signal });
+function checkedAccount(user: Account): Account {
   if (!user || typeof user.id !== 'number' || typeof user.name !== 'string' || typeof user.username !== 'string'
-    || typeof user.email !== 'string' || typeof user.phone !== 'string') {
+    || typeof user.email !== 'string' || typeof user.phone !== 'string'
+    || (user.bio != null && typeof user.bio !== 'string') || (user.birthday != null && typeof user.birthday !== 'string')) {
     throw new ApiError(0, 'Не удалось прочитать данные аккаунта');
   }
   return user;
+}
+
+async function accountRequest(path: string, body?: unknown, signal?: AbortSignal): Promise<Account> {
+  return checkedAccount(await request<Account>(path, body, { signal }));
 }
 
 export const authApi = {
@@ -100,6 +108,11 @@ export const authApi = {
   logout: () => request<void>('/logout', undefined, { method: 'POST' }),
   requestEmail: () => request<{ expires_at: string }>('/request-email-verification', undefined, { method: 'POST' }),
   verifyEmail: (token: string) => accountRequest('/verify-email', { token }),
+  updateProfile: async (userId: number, data: ProfileUpdate, signal?: AbortSignal): Promise<Account> => {
+    const user = checkedAccount(await apiRequest<Account>('/api/user/me', data, { method: 'PATCH', signal }));
+    if (user.id !== userId) throw new ApiError(0, 'Сервер вернул данные другого аккаунта');
+    return user;
+  },
 };
 
 export function telegramLink(value: string): string | null {

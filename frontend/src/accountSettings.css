@@ -1,0 +1,21 @@
+.account-settings{padding-bottom:0;margin-bottom:0;border-bottom:0}
+.account-security-group{border-bottom:1px solid var(--line)}
+.account-security-group>summary{display:flex;align-items:center;gap:14px;min-height:67px;padding:17px 0;cursor:pointer;list-style:none}
+.account-security-group>summary::-webkit-details-marker{display:none}
+.account-security-group>summary::marker{content:''}
+.account-security-group>summary>svg{flex:none;width:20px;height:20px;stroke-width:1.5;color:#aaa}
+.account-security-group>summary>span{min-width:0;font-size:14px;overflow-wrap:anywhere}
+.account-security-group small{display:block;margin-top:6px;color:#929197;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.account-security-group>summary>svg:last-child{margin-left:auto;width:17px;height:17px;transition:transform .2s ease}
+.account-security-group[open]>summary>svg:last-child{transform:rotate(90deg)}
+.account-security-actions{padding:0 0 15px 34px}
+.account-security-group[open] .account-security-actions{animation:security-reveal .2s ease-out}
+.security-action{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:43px;width:100%;padding:10px 12px;text-align:left;border-radius:11px;font-size:13px}
+.security-action>span{min-width:0;overflow-wrap:anywhere}
+.security-action>svg{width:16px;height:16px;flex:none;color:#a89ba2;stroke-width:1.5}
+.security-action:hover:not(:disabled){background:#ffffff06}
+.security-action:disabled{cursor:default;color:#a39da1}
+.security-notice,.account-security-actions .auth-description,.account-security-actions .auth-error{font-size:12px;line-height:1.6;margin:8px 12px 0;overflow-wrap:anywhere}
+.security-notice{color:#a8a1a6}
+@keyframes security-reveal{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.account-security-group[open] .account-security-actions{animation:none}.account-security-group>summary>svg:last-child{transition:none}}

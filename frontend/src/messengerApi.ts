@@ -1,7 +1,7 @@
 import { ApiError, apiRequest } from './authApi.ts';
 import type { Chat, Message, Moment } from './domain.ts';
 
-export type PublicUser = { id: number; name: string; username: string };
+export type PublicUser = { id: number; name: string; username: string; bio?: string | null; birthday?: string | null };
 export type ArchiveKind = 'chat' | 'moment' | 'question';
 export type ServerArchive = { chat_ids: number[]; moment_ids: number[]; question_ids: number[] };
 export type ArchiveChange = { chat_id: number; item_type: ArchiveKind; item_id: number; archived: boolean };
@@ -67,7 +67,8 @@ export function isMomentCard(value: unknown): value is ServerMomentCard {
 }
 export function isPublicUser(value: unknown): value is PublicUser {
   const user = value as PublicUser | null;
-  return !!user && positive(user.id) && typeof user.name === 'string' && typeof user.username === 'string';
+  return !!user && positive(user.id) && typeof user.name === 'string' && typeof user.username === 'string'
+    && (user.bio == null || typeof user.bio === 'string') && (user.birthday == null || typeof user.birthday === 'string');
 }
 export function isServerMessage(value: unknown): value is ServerMessage {
   const message = value as ServerMessage | null;
@@ -197,7 +198,8 @@ export const messengerApi = {
 };
 export function toChat(chat: ServerChat): Chat {
   return { id: chatKey(chat.id), serverId: chat.id, partnerId: chat.partner.id, createdAt: chat.created_at,
-    name: chat.partner.name, username: chat.partner.username, initial: Array.from(chat.partner.name)[0]?.toLocaleUpperCase('ru') || '?', online: false, unread: chat.unread_count };
+    name: chat.partner.name, username: chat.partner.username, bio: chat.partner.bio ?? undefined, birthday: chat.partner.birthday ?? undefined,
+    initial: Array.from(chat.partner.name)[0]?.toLocaleUpperCase('ru') || '?', online: false, unread: chat.unread_count };
 }
 export function toMessage(message: ServerMessage, ownId: number): Message {
   return { id: `message-${message.id}`, serverId: message.id, chatId: chatKey(message.chat_id), createdAt: message.created_at,

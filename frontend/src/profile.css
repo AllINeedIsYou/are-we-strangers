@@ -1,0 +1,17 @@
+.profile-dialog{max-height:calc(100dvh - 32px)}
+.profile-dialog .profile-avatar{margin-bottom:16px}
+.profile-account-data+.profile-editor{margin-top:16px}
+.profile-editor{gap:16px}
+.profile-editor .auth-fields{display:flex;flex-direction:column;gap:17px}
+.profile-editor input,.profile-editor textarea{border-color:#9d1839;border-radius:14px;background:#100d10;color:#f2edef;min-width:0;color-scheme:dark}
+.profile-editor input:focus,.profile-editor textarea:focus{border-color:#ec496d;outline:none;box-shadow:0 0 0 2px #b0002518}
+.profile-editor textarea{min-height:85px;max-height:180px}
+.profile-editor .profile-username-input{display:flex;align-items:center;gap:0;min-width:0;border:1px solid #9d1839;border-radius:14px;background:#100d10;overflow:hidden}
+.profile-username-input>span{padding-left:12px;font-size:15px;color:#b5a5ad}
+.profile-editor .profile-username-input input{border:0;background:transparent;padding-left:5px;box-shadow:none}
+.profile-username-input:focus-within{border-color:#ec496d}
+.profile-birthday-input{display:flex;align-items:center;gap:12px;min-width:0}
+.profile-birthday-input input{flex:1;min-width:0}
+.profile-birthday-input button{font-size:12px;flex:none;color:#f08099}
+.profile-editor .primary{min-height:43px;border-radius:999px;font-size:14px;padding:10px 15px}
+.profile-editor .auth-error,.profile-editor .auth-success{margin:0}

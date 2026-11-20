@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode, type SetStateAction } from 'react';
-import { Archive, ArrowLeft, ArrowUpRight, Bell, Bookmark, Check, ChevronRight, Copy, Forward, Pin, PinOff, Reply, Trash2, Clock3, LogOut, MessageCircle, MoreHorizontal, Paperclip, Phone, Search, Send, Settings, Smile, SquarePen, UserRound, X } from 'lucide-react';
+import { Archive, ArrowLeft, ArrowUpRight, Bookmark, Check, ChevronRight, Copy, Forward, Pin, PinOff, Reply, Trash2, Clock3, LogOut, MessageCircle, MoreHorizontal, Paperclip, Phone, Search, Send, Settings, Smile, SquarePen, UserRound, X } from 'lucide-react';
 import { acceptChapter, canPulse, editMessage, forwardMessages, id, initialState, removeMessages, restoreMessages, restoreState, saveMoment, messageSummary, storageKey, timeNow, type Chat, type MediaAsset, type DemoState, type Message, type RemovedMessage, type ReplySnapshot } from './domain';
 import { MessageBubble, MessageContextMenu, type MessageMenuTarget } from './MessageActions';
 import MediaView from './MediaView';
@@ -30,6 +30,7 @@ import { fileKind, storeMedia } from './mediaStore';
 import AuthForm from './AuthForm';
 import CenteredAuth from './CenteredAuth';
 import AccountSettings from './AccountSettings';
+import ProfileEditor from './ProfileEditor';
 import EmailConfirmation from './EmailConfirmation';
 import useAuthSession from './useAuthSession';
 import { authApi, friendlyError } from './authApi';
@@ -70,7 +71,7 @@ function Modal({ title, children, onClose, className = '', locked = false }: { t
 function loadDemo(userId: number) { try { return restoreState(localStorage.getItem(`${storageKey}.user.${userId}`)); } catch { return initialState(); } }
 type Panel = 'moments' | 'questions' | 'chapters' | 'archive';
 const minimumChatSearchWidth = 122;
-type ModalName = 'settings' | 'profile' | 'calls' | 'new-chat' | 'recovery' | 'reset-confirm' | 'pinned' | null;
+type ModalName = 'settings' | 'profile' | 'calls' | 'new-chat' | 'recovery' | 'pinned' | null;
 const emptyChat: Chat = { id: '', name: '', initial: '', online: false, unread: 0 };
 function dayLabel(date: string) {
   const value = new Date(date), now = new Date();
@@ -381,14 +382,6 @@ export default function App() {
     if (!demoMode) live.store?.selectChat(selected);
     setState(previous => ({ ...previous, chats: previous.chats.map(item => item.id === selected ? { ...item, unread: 0 } : item) }));
   }
-  function switchMode() {
-    viewRevision.current++;
-    setDemoMode(value => !value); setChatArchiveOpen(false); setSearch(''); setNewSearch(''); setChatId(''); setMobileChat(false);
-    setModal(null); setPanel(null); setContactOpen(false); setContactVisible(false); setMessageMenu(null);
-    setSelectedIds([]); setReplyTo(null); setEditing(null); setInlineError(''); setAttachment(null);
-    setMomentIds(null); setForwardIds(null); setDeleteIds(null); setRemovedUndo(null); setMessageSearch(null);
-    fileGeneration.current++; setPreparingFiles(false); followBottom.current = true;
-  }
   function requireDemo() {
     if (demoMode) return true;
     setInlineError('Эта возможность пока доступна в демо. Собеседнику ничего не отправлено.'); return false;
@@ -465,7 +458,6 @@ export default function App() {
     let silent=false;try{silent=localStorage.getItem(`aws.muted.${key}`)==='true';}catch{/* Notifications remain available without storage. */}
     if (!silent && canPulse(now, lastPulse.current)) { lastPulse.current = now; setPulse(true); pulseTimer.current = setTimeout(() => setPulse(false), 1400); }
   }
-  function notify() { pulseNotification(chat.id); }
   function cancelEdit() {
     if (editing) setDrafts(previous => ({ ...previous, [chat.id]: editing.originalDraft }));
     setEditing(null);
@@ -942,20 +934,16 @@ export default function App() {
     </Modal>}
     {modal === 'settings' && account && <Modal title="Настройки" onClose={closeModal}>
       <AccountSettings user={account} onUpdate={acceptUser} onExpired={clearUser} />
-      <p className="muted">Фото, голосовые сообщения и видеокружки пока доступны в демо.</p>
-      <button className="setting-row" onClick={notify}><Bell /><span>Проверить уведомление<small>Яркая вспышка звезды · пауза 2,5 секунды</small></span><ChevronRight /></button>
       <button className="setting-row" disabled={loggingOut} onClick={() => { void signOut(); }}><LogOut /><span>{loggingOut ? 'Выходим…' : 'Выйти из аккаунта'}</span><ChevronRight /></button>
       {accountError && <p className="auth-error" role="alert">{accountError}</p>}
       {removedUndo && <button className="setting-row" onClick={() => { setState(previous => restoreMessages(previous, removedUndo)); setRemovedUndo(null); }}><Reply /><span>Восстановить последние удалённые сообщения</span></button>}
-      <button className="setting-row" onClick={switchMode}><MessageCircle/><span>{demoMode ? 'Вернуться в мои чаты' : 'Открыть демо макета'}<small>Демо хранится отдельно от настоящей переписки</small></span><ChevronRight/></button>
-      <button disabled={!demoMode} className="text-button reset-button" onClick={() => setModal('reset-confirm')}>Сбросить демонстрацию</button>
     </Modal>}
-    {modal === 'reset-confirm' && <Modal title="Сбросить демонстрацию?" onClose={closeModal}><p className="muted">Локальная переписка и сохранённые моменты вернутся к начальному состоянию.</p><div className="modal-actions"><button className="secondary" onClick={closeModal}>Отмена</button><button className="primary" onClick={() => { fileGeneration.current += 1; setPreparingFiles(false); setState(initialState()); setChatId('mira'); setDrafts({}); setAttachment(null); setPanel(null); setReplyTo(null); setEditing(null); setSelectedIds([]); setRemovedUndo(null);  closeModal(); }}>Сбросить</button></div></Modal>}
-    {modal === 'profile' && account && <Modal title="Профиль" onClose={closeModal}>
+    {modal === 'profile' && account && <Modal title="Профиль" className="profile-dialog" onClose={closeModal}>
       <Avatar asset={avatar} initial={name.slice(0,1).toLocaleUpperCase('ru')} className="profile-avatar" />
       <input type="file" ref={avatarInput} hidden accept="image/*" onChange={event => { const file=event.target.files?.[0];event.target.value='';if(file)setCropFile(file); }} />
       <div className="avatar-actions"><button className="secondary" onClick={() => avatarInput.current?.click()}>{avatar ? 'Изменить аватар' : 'Добавить аватар'}</button>{avatar && <button className="text-button" onClick={() => { setAvatar(undefined);try{localStorage.removeItem(`aws.avatar.user.${account.id}`);}catch{/* in memory */} }}>Убрать</button>}</div>
-      <div className="profile-account-data"><small>Аватар пока сохраняется только в этом браузере.</small><label>Имя<input value={account.name} readOnly /></label><label>Юзернейм<input value={account.username} readOnly /></label><small>Изменение данных профиля подключим следующим этапом.</small></div>
+      <div className="profile-account-data"><small>Аватар пока сохраняется только в этом браузере.</small></div>
+      <ProfileEditor key={account.id} user={account} onUpdate={acceptUser} onExpired={clearUser} />
     </Modal>}
     {modal === 'calls' && <Modal title="Звонки" onClose={closeModal}><div className="empty-state"><Phone /><p>Здесь будет голос</p><span>В этом прототипе проверяем вход и переписку. Звонки ещё не подключены.</span></div><button className="secondary full" onClick={closeModal}>Вернуться к разговору</button></Modal>}
     {modal === 'new-chat' && <Modal title="Начать разговор" onClose={closeModal}>{demoMode ? <><p className="muted">В демо доступны три собеседника.</p>{state.chats.map(item => <button className="contact-choice" key={item.id} onClick={() => { selectChat(item.id); closeModal(); }}><span className="avatar">{item.initial}</span>{item.name}<ChevronRight /></button>)}</> : <><label className="new-user-search"><Search size={18}/><input autoComplete="off" aria-label="Найти человека" placeholder="@юзернейм или +7…" value={newSearch} onChange={event => setNewSearch(event.target.value)} /></label><UserResults users={newResults.users} loading={newResults.loading} error={newResults.error || openError} opening={openingUser} onOpen={user => { void openUser(user); }} empty={newSearch.trim() ? undefined : 'Введи @юзернейм с учётом регистра или полный номер телефона'} /></>}</Modal>}
