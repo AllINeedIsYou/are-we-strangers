@@ -41,7 +41,7 @@ export default function ContactProfile({open,chat,state,serverChapterCount,onClo
   function toggleMute(){setMuted(value=>{const next=!value;try{localStorage.setItem(`aws.muted.${chat.id}`,String(next));}catch{/* Session preference still works. */}return next;});}
   return <section className={`contact-profile ${open?'profile-open':''} ${compact?'profile-compact':''}`} aria-label={`Профиль: ${chat.name}`} inert={!open}>
     <div ref={scroller} className="profile-scroll" onScroll={event=>setCompact(event.currentTarget.scrollTop>130)}>
-      <header className="profile-topbar"><button ref={back} className="glass" aria-label="Назад к переписке" onClick={onClose}><ArrowLeft/></button><div className="profile-compact-name" aria-hidden={!compact}><strong>{chat.name}</strong><small>{status}</small></div><button className="glass" aria-label="Поиск в этом чате" onClick={onSearch}><Search/></button></header>
+      <header className="profile-topbar"><button ref={back} className="glass back-button" aria-label="Назад к переписке" onClick={onClose}><ArrowLeft/></button><div className="profile-compact-name" aria-hidden={!compact}><strong>{chat.name}</strong><small>{status}</small></div><button className="glass" aria-label="Поиск в этом чате" onClick={onSearch}><Search/></button></header>
       <div className="profile-content">
         <div className="profile-hero" aria-hidden={compact}><Avatar initial={chat.initial} asset={chat.avatar}/><h1>{chat.name}</h1><p className={chat.online?'online':''}>{status}</p></div>
         <nav className="profile-actions" aria-label="Действия с собеседником">

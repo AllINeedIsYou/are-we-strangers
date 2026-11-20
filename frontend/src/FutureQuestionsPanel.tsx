@@ -4,10 +4,11 @@ import { friendlyError } from './authApi';
 import type { ServerFutureQuestion } from './messengerApi';
 import QuestionDatePicker, { nextLocalDay } from './QuestionDatePicker';
 import FutureQuestionAnswerForm from './FutureQuestionAnswerForm';
+import DateSortButton, { sortByCreated, type DateOrder } from './DateSortButton';
 
 const dateLabel = new Intl.DateTimeFormat('ru', { day: 'numeric', month: 'long', year: 'numeric' });
 
-export default function FutureQuestionsPanel({ cards, now, loading, error, onReload, onCreate, onAnswer }: {
+export default function FutureQuestionsPanel({ cards, now, loading, error, onReload, onCreate, onAnswer, hiddenIds, onShowInChat }: {
   cards: ServerFutureQuestion[];
   now: number;
   loading: boolean;
@@ -15,11 +16,14 @@ export default function FutureQuestionsPanel({ cards, now, loading, error, onRel
   onReload: () => void;
   onCreate: (text: string, opensAt: string) => Promise<boolean>;
   onAnswer: (id: number, text: string) => Promise<boolean>;
+  hiddenIds: ReadonlySet<number>;
+  onShowInChat: (id: number) => void;
 }) {
   return <FutureQuestionsLayout
     cards={cards} now={now} loading={loading} error={error} onReload={onReload}
     onCreate={(text, opening) => onCreate(text, opening.toISOString())}
-    getOpening={card => card.opens_at} hasAnswer={card => card.my_answer !== null}
+    getOpening={card => card.opens_at} getCreated={card => card.created_at} hasAnswer={card => card.my_answer !== null}
+    renderActions={card => hiddenIds.has(card.id) && <button type="button" className="question-show-in-chat" onClick={() => onShowInChat(card.id)}>Показать в чате</button>}
     renderAnswer={card => card.my_answer === null ? <FutureQuestionAnswerForm onAnswer={text => onAnswer(card.id, text)} /> : <>
       <div className="moment-note"><span className="eyebrow">ТВОЙ ОТВЕТ</span><p>{card.my_answer}</p></div>
       {card.partner_answer !== null
@@ -30,7 +34,7 @@ export default function FutureQuestionsPanel({ cards, now, loading, error, onRel
 }
 
 export function FutureQuestionsLayout<Card extends { id: number | string; text: string }>({
-  cards, now, loading, error, onReload, onCreate, getOpening, hasAnswer, renderAnswer,
+  cards, now, loading, error, onReload, onCreate, getOpening, getCreated, hasAnswer, renderAnswer, renderActions,
 }: {
   cards: Card[];
   now: number;
@@ -39,8 +43,10 @@ export function FutureQuestionsLayout<Card extends { id: number | string; text: 
   onReload?: () => void;
   onCreate: (text: string, opening: Date) => Promise<boolean> | boolean;
   getOpening: (card: Card) => string;
+  getCreated: (card: Card) => string | undefined;
   hasAnswer: (card: Card) => boolean;
   renderAnswer: (card: Card) => ReactNode;
+  renderActions?: (card: Card) => ReactNode;
 }) {
   const formId = useId();
   const toggle = useRef<HTMLButtonElement>(null);
@@ -49,8 +55,9 @@ export function FutureQuestionsLayout<Card extends { id: number | string; text: 
   const [openingDate, setOpeningDate] = useState('');
   const request = useRef(false);
   const [failure, setFailure] = useState('');
+  const [order, setOrder] = useState<DateOrder>('desc');
   const groups = { ready: [] as Card[], answered: [] as Card[], upcoming: [] as Card[] };
-  for (const card of cards) {
+  for (const card of sortByCreated(cards, getCreated, order)) {
     if (Date.parse(getOpening(card)) > now) groups.upcoming.push(card);
     else if (hasAnswer(card)) groups.answered.push(card);
     else groups.ready.push(card);
@@ -99,6 +106,7 @@ export function FutureQuestionsLayout<Card extends { id: number | string; text: 
           <time className="eyebrow" dateTime={opening}>{dateLabel.format(new Date(opening))}</time>
           <h3>{card.text}</h3>
           {upcoming ? <p className="muted"><Clock3 size={16} /> Встретимся с этим вопросом позже.</p> : renderAnswer(card)}
+          {renderActions?.(card)}
         </article>;
       })}
     </section>;
@@ -107,10 +115,13 @@ export function FutureQuestionsLayout<Card extends { id: number | string; text: 
   return <>
     <div className="future-questions-heading">
       <h3>Вопросы в будущее</h3>
+      <div className="history-toolbar">
+      <DateSortButton order={order} onChange={setOrder} />
       <button ref={toggle} type="button" className="glass round icon-button" aria-label={expanded ? 'Свернуть форму вопроса' : 'Добавить вопрос'} aria-expanded={expanded} aria-controls={formId} onClick={() => {
         if (expanded) toggle.current?.focus({ preventScroll: true });
         setExpanded(!expanded);
       }}><Plus aria-hidden="true" /></button>
+      </div>
     </div>
     <div id={formId} className={`future-question-disclosure ${expanded ? 'is-expanded' : ''}`} inert={!expanded} aria-hidden={!expanded}>
       <div>

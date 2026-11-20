@@ -1,4 +1,5 @@
 /* Keep the horizontal anchor independent of the animated text width. */
+.back-button:focus-visible{outline:none;background-color:#ffffff0a}
 .auth-screen .brand-trigger{left:0;right:0;width:100%;top:50%;transform:translateY(-50%);text-align:center}
 .auth-screen.auth-open .brand-trigger{top:max(5.8vh,28px);transform:translateY(0)}
 .auth-screen .star{opacity:1;filter:none;animation:none}
@@ -161,6 +162,8 @@
   }
 }
 @media(max-width:760px){
+  .sidebar-header{align-items:center;padding-top:8px;padding-bottom:36px}
+  .sidebar-header .compose-new{margin-top:0}
   .auth-screen.auth-open .brand-trigger{top:max(6svh,30px)}
   .message-row{min-height:32px;margin-top:3px}
   .bubble{min-height:32px;max-width:90%;padding:6px 10px;font-size:15px;line-height:20px;border-radius:18px}

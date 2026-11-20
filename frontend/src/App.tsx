@@ -13,6 +13,9 @@ import FutureQuestionAnswerForm from './FutureQuestionAnswerForm';
 import { dateValue } from './QuestionDatePicker';
 import ContactProfile from './ContactProfile';
 import ChaptersPanel from './ChaptersPanel';
+import ChapterProposalNotice from './ChapterProposalNotice';
+import ScrollToBottom from './ScrollToBottom';
+import DateSortButton, { sortByCreated, type DateOrder } from './DateSortButton';
 import { chapterBoundaries, placeChapterBoundaries, type ChapterBoundary } from './chapterTimeline';
 import ChatListDivider, { loadChatListWidth, maxChatListWidth, saveChatListWidth } from './ChatListDivider';
 import ConversationSearch from './ConversationSearch';
@@ -27,9 +30,10 @@ import { authApi, friendlyError } from './authApi';
 import useMessenger from './useMessenger';
 import useReadTracking from './useReadTracking';
 import useFutureQuestionClock from './useFutureQuestionClock';
+import useHiddenQuestions from './useHiddenQuestions';
 import useDragSelection from './useDragSelection';
 import useUserSearch from './useUserSearch';
-import type { PublicUser, ServerFutureQuestion } from './messengerApi';
+import type { PublicUser, ServerChapter, ServerFutureQuestion } from './messengerApi';
 import DevAccountSwitch from './DevAccountSwitch';
 import { findOwnChats, usesGlobalSearch } from './userSearch';
 import { findMoments } from './search';
@@ -68,6 +72,7 @@ function dayLabel(date: string) {
 
 export default function App() {
   const { user: account, checking, sessionError, acceptUser, clearUser, refresh } = useAuthSession();
+  const { hiddenQuestions, setQuestionHidden } = useHiddenQuestions(account?.id ?? null);
   const [stage, setStage] = useState<'intro' | 'login' | 'chat'>('intro');
   const [register, setRegister] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -111,6 +116,7 @@ export default function App() {
   const historyCloseTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const [momentIds, setMomentIds] = useState<string[] | null>(null);
   const [momentQuery, setMomentQuery] = useState<string | null>(null);
+  const [momentOrder, setMomentOrder] = useState<DateOrder>('desc');
   const [reason, setReason] = useState('');
   const [momentSaving, setMomentSaving] = useState(false);
   const [momentError, setMomentError] = useState('');
@@ -172,7 +178,7 @@ export default function App() {
   const currentAttachment = attachment?.chatId === chat.id ? attachment : null;
   const momentSelected=state.messages.filter(item=>item.chatId===chat.id&&!item.kind&&momentIds?.includes(item.id));
   const moments = state.moments.filter(moment => moment.chatId === chat.id);
-  const visibleMoments = findMoments(moments, momentQuery ?? '');
+  const visibleMoments = sortByCreated(findMoments(moments, momentQuery ?? ''), moment => moment.createdAt, momentOrder);
   const momentsStatus = live.momentsStatus[chat.id];
   const chaptersStatus = live.chapters[chat.id];
   const chapterCards = chaptersStatus?.cards ?? [];
@@ -185,7 +191,7 @@ export default function App() {
     : futureQuestionCards.map(card => Date.parse(card.opens_at)));
   const questionNotices = new Map<string | null, ServerFutureQuestion[]>();
   if (!demoMode && messageSearch === null) {
-    const openQuestions = futureQuestionCards.filter(card => Date.parse(card.opens_at) <= questionClock)
+    const openQuestions = futureQuestionCards.filter(card => !hiddenQuestions.has(card.id) && Date.parse(card.opens_at) <= questionClock)
       .sort((first, second) => Date.parse(first.opens_at) - Date.parse(second.opens_at) || first.id - second.id);
     for (const card of openQuestions) {
       const openedAt = Date.parse(card.opens_at);
@@ -194,6 +200,17 @@ export default function App() {
       const notices = questionNotices.get(key) ?? [];
       notices.push(card);
       questionNotices.set(key, notices);
+    }
+  }
+  const chapterProposals = new Map<string | null, ServerChapter[]>();
+  if (!demoMode && messageSearch === null) {
+    for (const chapter of chapterCards.filter(card => card.status === 'pending')) {
+      const proposedAt = Date.parse(chapter.created_at);
+      const nextMessage = messages.find(message => message.createdAt && Date.parse(message.createdAt) >= proposedAt);
+      const key = nextMessage?.id ?? null;
+      const proposals = chapterProposals.get(key) ?? [];
+      proposals.push(chapter);
+      chapterProposals.set(key, proposals);
     }
   }
   const history = live.history[chat.id];
@@ -490,12 +507,21 @@ export default function App() {
     const questions = questionNotices.get(beforeMessageId) ?? [];
     const notices = renderQuestionNotices(beforeMessageId);
     for (let index = 0; index < questions.length; index++) markers.push({ at: Date.parse(questions[index].opens_at), element: notices[index] });
+    for (const chapter of chapterProposals.get(beforeMessageId) ?? []) markers.push({
+      at: Date.parse(chapter.created_at),
+      element: <ChapterProposalNotice key={`chapter-proposal-${chapter.id}`} chapter={chapter} own={chapter.author_id === account?.id}
+        onDecide={status => live.store?.decideChapter(chat.id, chapter.id, status) ?? Promise.resolve(false)}><Star /></ChapterProposalNotice>,
+    });
     return markers.sort((a, b) => a.at - b.at).map(marker => marker.element);
   }
   function renderQuestionNotices(beforeMessageId: string | null) {
     return (questionNotices.get(beforeMessageId) ?? []).map(card => {
       const isAnswering = answeringQuestion?.chatId === chat.id && answeringQuestion.id === card.id;
       return <aside className="future-question-notice" key={`question-notice-${card.id}`} aria-label="Вопрос на будущее">
+        <IconButton label="Скрыть вопрос из чата" className="hide-question-notice" onClick={() => {
+          setQuestionHidden(card.id, true);
+          composer.current?.focus({ preventScroll: true });
+        }}><X size={15} /></IconButton>
         <div className="future-question-notice-star" aria-hidden="true"><Star /></div>
         <span>Вопрос открылся</span>
         <p>{card.text}</p>
@@ -722,7 +748,7 @@ export default function App() {
       </aside>
       {wide && !panel && <ChatListDivider width={sidebarWidth} maximum={maximumChatListWidth} onResize={resizeChatList} />}
       {!chat.id ? <section className="conversation live-empty"><Brand /><p>{live.loading ? 'Загружаем твои разговоры…' : 'С кем начнётся твоя история?'}</p><button className="secondary glass" onClick={() => setModal('new-chat')}>Начать разговор</button></section> : <section ref={conversation} className={`conversation ${selectedIds.length?'is-selecting':''} ${contactOpen?'contact-is-open':''}`} aria-label={`Переписка: ${chat.name}`}>
-        <div className="chat-surface" inert={contactVisible}><header className="conversation-header"><IconButton label="Назад к чатам" className="mobile-back" onClick={() => { setMobileChat(false); setPanel(null); }}><ArrowLeft /></IconButton><button ref={contactButton} className="contact-button plain glass" disabled={recordingActive} onClick={openContact} aria-label={`Открыть профиль: ${chat.name}`}><span className="avatar">{chat.initial}</span><span><strong>{chat.name}</strong><span className="status">{chat.serverId ? chat.username : chat.online ? <><i />В сети</> : 'был(а) недавно'}</span></span></button><div className="header-actions glass"><IconButton label="Позвонить" onClick={() => setModal('calls')}><Phone /></IconButton><IconButton label="Поиск в переписке" onClick={() => setMessageSearch(value => value === null ? '' : null)}><Search /></IconButton><div className="menu-wrap"><IconButton label="Меню разговора" onClick={() => setMenuOpen(value => !value)}><MoreHorizontal /></IconButton>{menuOpen && <><button className="menu-scrim" aria-label="Закрыть меню" onClick={() => setMenuOpen(false)} /><div className="dropdown glass"><button onClick={()=>{setMessageSearch('');setMenuOpen(false);}}><Search/>Поиск в переписке</button><button onClick={() => { setPanel('moments'); setMenuOpen(false); }}><Bookmark />Сохранённые моменты</button><button onClick={() => { setPanel('questions'); setMenuOpen(false); }}><Clock3 />Вопрос на будущее</button><button onClick={() => { setPanel('chapters'); setMenuOpen(false); }}><ArrowUpRight />Начать заново</button></div></>}</div></div>{selectedIds.length>0&&<IconButton label="Завершить выбор сообщений" className="selection-done" onClick={()=>setSelectedIds([])}><Check/></IconButton>}</header>
+        <div className="chat-surface" inert={contactVisible}><header className="conversation-header"><IconButton label="Назад к чатам" className="mobile-back back-button" onClick={() => { setMobileChat(false); setPanel(null); }}><ArrowLeft /></IconButton><button ref={contactButton} className="contact-button plain glass" disabled={recordingActive} onClick={openContact} aria-label={`Открыть профиль: ${chat.name}`}><span className="avatar">{chat.initial}</span><span><strong>{chat.name}</strong><span className="status">{chat.serverId ? chat.username : chat.online ? <><i />В сети</> : 'был(а) недавно'}</span></span></button><div className="header-actions glass"><IconButton label="Позвонить" onClick={() => setModal('calls')}><Phone /></IconButton><IconButton label="Поиск в переписке" onClick={() => setMessageSearch(value => value === null ? '' : null)}><Search /></IconButton><div className="menu-wrap"><IconButton label="Меню разговора" onClick={() => setMenuOpen(value => !value)}><MoreHorizontal /></IconButton>{menuOpen && <><button className="menu-scrim" aria-label="Закрыть меню" onClick={() => setMenuOpen(false)} /><div className="dropdown glass"><button onClick={()=>{setMessageSearch('');setMenuOpen(false);}}><Search/>Поиск в переписке</button><button onClick={() => { setPanel('moments'); setMenuOpen(false); }}><Bookmark />Сохранённые моменты</button><button onClick={() => { setPanel('questions'); setMenuOpen(false); }}><Clock3 />Вопрос на будущее</button><button onClick={() => { setPanel('chapters'); setMenuOpen(false); }}><ArrowUpRight />Главы</button></div></>}</div></div>{selectedIds.length>0&&<IconButton label="Завершить выбор сообщений" className="selection-done" onClick={()=>setSelectedIds([])}><Check/></IconButton>}</header>
         {messageSearch !== null && <><ConversationSearch query={messageSearch} onQuery={setMessageSearch} messages={messages} chat={chat} ownName={name} ownAvatar={avatar} onNavigate={navigateSearch} onClose={closeSearch}/>{!demoMode && <span className="search-scope-label">Поиск по загруженным сообщениям</span>}</>}
 
         {pinned.length > 0 && <div className="pinned-bar glass">
@@ -751,6 +777,10 @@ export default function App() {
             </Fragment>];
           }).concat(messages.length ? renderTimelineMarkers(null) : [])}
         </div></div>
+        <ScrollToBottom key={`${account.id}:${chat.id}:${demoMode}`} scroll={scroll} enabled={(wide || mobileChat) && (demoMode || readEntry.ready) && !recordingActive} onActivate={() => {
+          followBottom.current = true;
+          scrollIntent.current = 0;
+        }} />
         <div ref={composerArea} className={`composer-area ${recordingActive?'is-recording':''}`}>
           {selectedIds.length>0?<div className="selection-dock" aria-label="Действия с выбранными сообщениями"><IconButton label="Удалить выбранные сообщения" disabled={deleting} className="glass round" onClick={()=>requestDelete([...selectedIds])}><Trash2/></IconButton><span className="selection-count">Выбрано: {selectedIds.length}{!demoMode && selectedIds.length === 100 ? ' · максимум 100' : ''}</span><div className="selection-dock-actions"><IconButton label="Копировать выбранные сообщения" onClick={()=>void copyMessages(selectedIds)}><Copy/></IconButton><IconButton label="Сохранить выбранные сообщения в момент" onClick={()=>openMoment([...selectedIds])}><Bookmark/></IconButton><IconButton label="Переслать выбранные сообщения" disabled={forwarding} className="glass round" onClick={()=>openForward([...selectedIds])}><Forward/></IconButton></div></div>:<>
 
@@ -771,17 +801,19 @@ export default function App() {
         </div></div>
         {contactVisible&&<ContactProfile key={chat.id} open={contactOpen} chat={chat} state={state} serverChapterCount={demoMode ? undefined : chapterCards.length + Number(chapterStarts.some(chapter => chapter.id.startsWith('initial-')))} onClose={()=>setContactOpen(false)} onStory={setPanel} onCall={()=>setModal('calls')} onSearch={()=>{setContactOpen(false);setMessageSearch('');setTimeout(()=>conversation.current?.querySelector<HTMLInputElement>('.conversation-search input')?.focus(),500);}}/>}
       </section>}
-      {panel && <dialog ref={historyDialog} className={`history-panel ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label="История знакомства" onCancel={event => {event.preventDefault();closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}><header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>История знакомства</h2></div><IconButton label={contactOpen?"Назад к профилю":"Закрыть историю"} onClick={closeHistory}>{contactOpen?<ArrowLeft/>:<X/>}</IconButton></header><div className="panel-tabs" role="tablist" aria-label="История знакомства">{([['moments', 'Моменты'], ['questions', 'Будущее'], ['chapters', 'Главы']] as const).map(([tab, label]) => <button key={tab} role="tab" aria-selected={panel === tab} onClick={() => setPanel(tab)}>{label}</button>)}</div><div className="panel-content">
+      {panel && <dialog ref={historyDialog} className={`history-panel ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label="История знакомства" onCancel={event => {event.preventDefault();closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}><header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>История знакомства</h2></div><IconButton className={contactOpen ? "back-button" : ""} label={contactOpen?"Назад к профилю":"Закрыть историю"} onClick={closeHistory}>{contactOpen?<ArrowLeft/>:<X/>}</IconButton></header><div className="panel-tabs" role="tablist" aria-label="История знакомства">{([['moments', 'Моменты'], ['questions', 'Будущее'], ['chapters', 'Главы']] as const).map(([tab, label]) => <button key={tab} role="tab" aria-selected={panel === tab} onClick={() => setPanel(tab)}>{label}</button>)}</div><div className="panel-content">
         {demoMode && <p className="panel-demo">Демонстрация механик. Ответы собеседника моделируются вручную.</p>}
         <fieldset className="feature-fields">
         {panel === 'moments' && <>
           <div className="moments-heading">
             <h3>Не забывайте важные моменты</h3>
+            <div className="history-toolbar">
+            <DateSortButton order={momentOrder} onChange={setMomentOrder} />
             <button type="button" className="icon-button glass" aria-label={momentQuery === null ? 'Открыть поиск по моментам' : 'Закрыть поиск по моментам'} aria-expanded={momentQuery !== null} onClick={() => setMomentQuery(value => value === null ? '' : null)}>
               {momentQuery === null ? <Search size={17} /> : <X size={17} />}
             </button>
+            </div>
           </div>
-          <p className="muted">Сохрани сообщение и расскажи, почему оно осталось с тобой.</p>
           {momentQuery !== null && <input className="simple-input moments-search" type="search" aria-label="Поиск по моментам" placeholder="Поиск по моментам" value={momentQuery} onChange={event => setMomentQuery(event.target.value)} autoFocus />}
           {!demoMode && momentsStatus?.error && <p className="history-error" role="alert">{momentsStatus.error} <button className="text-button" onClick={() => void live.store?.loadMoments(chat.id)}>Повторить</button></p>}
           {!moments.length && !demoMode && (!momentsStatus || momentsStatus.loading) && <p className="muted" role="status">Загружаем моменты…</p>}
@@ -801,16 +833,19 @@ export default function App() {
           onReload={() => void live.store?.loadFutureQuestions(chat.id)}
           onCreate={(text, opensAt) => live.store?.createFutureQuestion(chat.id, text, opensAt) ?? Promise.resolve(false)}
           onAnswer={(questionId, text) => live.store?.answerFutureQuestion(chat.id, questionId, text) ?? Promise.resolve(false)}
+          hiddenIds={hiddenQuestions}
+          onShowInChat={id => setQuestionHidden(id, false)}
         />}
         {panel === 'questions' && demoMode && <FutureQuestionsLayout
           key={chat.id}
           cards={demoQuestions}
           now={questionClock}
           getOpening={item => `${item.date}T00:00:00`}
+          getCreated={item => item.createdAt}
           hasAnswer={item => !!item.answer}
           onCreate={(text, opening) => {
             setState(previous => ({ ...previous, questions: [...previous.questions, {
-              id: id(), chatId: chat.id, text, date: dateValue(opening), answer: '',
+              id: id(), chatId: chat.id, text, date: dateValue(opening), answer: '', createdAt: new Date().toISOString(),
             }] }));
             return true;
           }}
@@ -826,7 +861,7 @@ export default function App() {
         {panel === 'chapters' && !demoMode && live.store && <ChaptersPanel
           key={chat.id}
           cards={chapterCards}
-          initial={chapterStarts.find(chapter => chapter.id.startsWith('initial-'))}
+          boundaries={chapterStarts}
           ownId={account.id}
           loading={chaptersStatus?.loading ?? true}
           error={chaptersStatus?.error}

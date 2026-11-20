@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ApiError } from '../src/authApi.ts';
 import { messengerApi, type ServerChapter } from '../src/messengerApi.ts';
 import { MessengerStore } from '../src/messengerStore.ts';
-import { chapterBoundaries, placeChapterBoundaries } from '../src/chapterTimeline.ts';
+import { chapterBoundaries, completedChapterMinutes, placeChapterBoundaries } from '../src/chapterTimeline.ts';
 import type { Chat, Message } from '../src/domain.ts';
 
 const created = '2026-11-01T12:00:00Z';
@@ -120,4 +120,17 @@ test('jumping to a chapter walks backward through server history and stops at th
   assert.equal(await h.store.loadChapterStart('server-7', accepted, new AbortController().signal), true);
   assert.deepEqual(cursors, [undefined, 51]);
   assert.equal(h.store.getSnapshot().state.messages.length, 51);
+});
+
+test('a chapter ends at the next accepted start, excluding proposals and rejections and retaining zero full minutes', () => {
+  const localChat: Chat = { id: 'server-7', createdAt: created, name: 'Мира', initial: 'М', online: false, unread: 0 };
+  const next = { ...acceptedChapter, id: 11, created_at: created, started_at: '2026-11-04T12:00:59Z' };
+  const rejected = { ...chapter, id: 12, status: 'rejected' as const };
+  const boundaries = chapterBoundaries(localChat, [chapter, next, rejected, acceptedChapter]);
+  const durations = completedChapterMinutes(boundaries);
+  assert.equal(durations.get('initial-server-7'), 4320);
+  assert.equal(durations.get('chapter-10'), 0);
+  assert.equal(durations.has('chapter-11'), false);
+  assert.equal(durations.has('chapter-12'), false);
+  assert.equal(durations.size, 2);
 });

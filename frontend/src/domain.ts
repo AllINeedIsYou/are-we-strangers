@@ -4,7 +4,7 @@ export type MediaAsset = { id: string; name: string; mime: string; size: number;
 export type Message = { id: string; chatId: string; text: string; own: boolean; time: string; serverId?: number; createdAt?: string; attachment?: string; media?: MediaAsset[]; kind?: 'chapter'; replyTo?: ReplySnapshot; replyToId?: string; forwardedFrom?: string; edited?: boolean; read?: boolean; pinned?: boolean };
 export type Chat = { id: string; name: string; initial: string; online: boolean; unread: number; serverId?: number; partnerId?: number; createdAt?: string; avatar?: MediaAsset; username?: string; phone?: string; birthday?: string; bio?: string };
 export type Moment = { id: string; chatId: string; message: string; messages?: (Message & { authorName?: string })[]; reason: string; response?: string; serverId?: number; authorId?: number; createdAt?: string };
-export type FutureQuestion = { id: string; chatId: string; text: string; date: string; answer: string; otherAnswer?: string };
+export type FutureQuestion = { id: string; chatId: string; text: string; date: string; answer: string; otherAnswer?: string; createdAt?: string };
 export type Chapter = { id: string; chatId: string; title: string; status: 'pending' | 'accepted' };
 export type DeleteScope = 'self' | 'everyone';
 export type Deletion = { id: string; messageIds: string[]; scope: DeleteScope; at: string };
@@ -20,7 +20,7 @@ export const messageSummary = (message: Message) => message.text || message.medi
 export function saveMoment(state: DemoState, chatId: string, messageIds: string[], reason: string): DemoState {
   const messages = state.messages.filter(item => item.chatId === chatId && messageIds.includes(item.id) && !item.kind).map(item => ({ ...item, media: item.media?.map(asset => ({ ...asset })), replyTo: item.replyTo ? { ...item.replyTo } : undefined }));
   if (!messages.length || !reason.trim()) return state;
-  return { ...state, moments: [...state.moments, { id: id(), chatId, message: messages.map(messageSummary).join('\n'), messages, reason: reason.trim() }] };
+  return { ...state, moments: [...state.moments, { id: id(), chatId, message: messages.map(messageSummary).join('\n'), messages, reason: reason.trim(), createdAt: new Date().toISOString() }] };
 }
 export const initialState = (): DemoState => ({
   chats: [
