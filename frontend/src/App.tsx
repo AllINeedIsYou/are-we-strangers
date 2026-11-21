@@ -32,6 +32,8 @@ import CenteredAuth from './CenteredAuth';
 import AccountSettings from './AccountSettings';
 import ProfileEditor from './ProfileEditor';
 import EmailConfirmation from './EmailConfirmation';
+import PasswordReset from './PasswordReset';
+import PasswordRecoveryForm from './PasswordRecoveryForm';
 import useAuthSession from './useAuthSession';
 import { authApi, friendlyError } from './authApi';
 import useMessenger from './useMessenger';
@@ -87,6 +89,7 @@ export default function App() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [accountError, setAccountError] = useState('');
   const [emailRoute, setEmailRoute] = useState(() => /^\/verify-email\/?$/.test(window.location.pathname));
+  const [passwordRoute, setPasswordRoute] = useState(() => /^\/reset-password\/?$/.test(window.location.pathname));
   const [demoOwner, setDemoOwner] = useState<number | null>(null);
   const [avatar,setAvatar]=useState<MediaAsset|undefined>();
   const [cropFile,setCropFile]=useState<File|null>(null);
@@ -731,6 +734,10 @@ export default function App() {
     window.history.replaceState(null, '', '/'); setEmailRoute(false);
     if (account) setStage('chat'); else { setStage('login'); void refresh(); }
   }} />;
+  if (passwordRoute) return <PasswordReset brand={<Brand />} onReset={clearUser} onDone={() => {
+    window.history.replaceState(null, '', '/'); setPasswordRoute(false);
+    setStage(account ? 'chat' : 'login');
+  }} />;
 
   function recordArchiveAction(kind: ArchiveKind, itemId: number, archived: boolean) {
     if (demoMode || !live.store || !chat.serverId) return undefined;
@@ -947,7 +954,7 @@ export default function App() {
     </Modal>}
     {modal === 'calls' && <Modal title="Звонки" onClose={closeModal}><div className="empty-state"><Phone /><p>Здесь будет голос</p><span>В этом прототипе проверяем вход и переписку. Звонки ещё не подключены.</span></div><button className="secondary full" onClick={closeModal}>Вернуться к разговору</button></Modal>}
     {modal === 'new-chat' && <Modal title="Начать разговор" onClose={closeModal}>{demoMode ? <><p className="muted">В демо доступны три собеседника.</p>{state.chats.map(item => <button className="contact-choice" key={item.id} onClick={() => { selectChat(item.id); closeModal(); }}><span className="avatar">{item.initial}</span>{item.name}<ChevronRight /></button>)}</> : <><label className="new-user-search"><Search size={18}/><input autoComplete="off" aria-label="Найти человека" placeholder="@юзернейм или +7…" value={newSearch} onChange={event => setNewSearch(event.target.value)} /></label><UserResults users={newResults.users} loading={newResults.loading} error={newResults.error || openError} opening={openingUser} onOpen={user => { void openUser(user); }} empty={newSearch.trim() ? undefined : 'Введи @юзернейм с учётом регистра или полный номер телефона'} /></>}</Modal>}
-    {modal === 'recovery' && <Modal title="Восстановление доступа" onClose={closeModal}><p className="muted">Восстановление пароля ещё не подключено. Для входа используй пароль, указанный при регистрации.</p><button className="secondary full" onClick={closeModal}>Понятно</button></Modal>}
+    {modal === 'recovery' && <Modal title="Восстановление пароля" onClose={closeModal}><PasswordRecoveryForm /></Modal>}
     {cropFile&&<AvatarCropDialog file={cropFile} onClose={()=>setCropFile(null)} onSave={saveAvatar}/>}
     {storageError && <div className="storage-warning" role="status">Браузер не сохраняет данные. Изменения доступны до перезагрузки.</div>}
   </>;

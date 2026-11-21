@@ -37,8 +37,6 @@
 .archive-chat-menu>button:hover{background:#ffffff09}
 .dropdown .archive-record-action{margin:0;padding:0;border:0}
 .dropdown .archive-record-action>button{width:max-content;min-height:30px;margin:3px 5px;padding:6px 9px;font-size:13px;color:inherit}
-.history-toolbar .date-sort-button,.history-archive-heading .date-sort-button,.chapters-heading .date-sort-button,.future-questions-heading .date-sort-button,.moments-heading .date-sort-button{width:32px;height:32px;min-width:32px;min-height:32px;padding:0;flex-shrink:0}
-.date-sort-button>svg{width:17px;height:17px}
 .history-card[data-archive-burn]{will-change:clip-path,mask-image;user-select:none}
 .sidebar-avatar-only .chat-archive-button{position:relative;justify-content:center;padding-inline:0}
 .sidebar-avatar-only .chat-archive-button .chat-text{display:none}

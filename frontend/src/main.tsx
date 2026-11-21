@@ -18,3 +18,4 @@ import './messenger.css';
 import './archive.css';
 import './profile.css';
 import './accountSettings.css';
+import './passwordReset.css';

@@ -36,6 +36,16 @@ class ConnectionManager:
             except(WebSocketDisconnected,WebSocketDisconnect):
                 self.remove_connection(user_id=user_id,websocket=connection)
 
+    async def close_user_connections(self, user_id: int):
+        connections = self.connections.get(user_id, set()).copy()
+        for connection in connections:
+            try:
+                await connection.close(code=1008)
+            except(WebSocketDisconnect,RuntimeError,OSError):
+                pass
+            finally:
+                self.remove_connection(user_id, connection)
+
 connection_manager = ConnectionManager()
 
 

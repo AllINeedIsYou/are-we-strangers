@@ -59,7 +59,7 @@ export default function ContactProfile({open,chat,state,serverChapterCount,onClo
             </div>
             <div id="details-panel-story" className={`profile-story details-pane ${details==='story'?'details-pane-active':''}`} role="tabpanel" aria-labelledby="details-tab-story" aria-hidden={details!=='story'} inert={details!=='story'}>
               <p className="details-story-intro">То, что делает вас ближе</p>
-              <button onClick={()=>onStory('moments')}><Bookmark/><span><strong>История чата</strong><small>{momentCount?`Сохранённые моменты · ${momentCount}`:'Сохранённые моменты'}</small></span><ChevronRight/></button>
+              <button onClick={()=>onStory('moments')}><Bookmark/><span><strong>Ваши моменты</strong><small>{momentCount?`Сохранённые моменты · ${momentCount}`:'Сохранённые моменты'}</small></span><ChevronRight/></button>
               <button onClick={()=>onStory('questions')}><Clock3/><span><strong>Вопросы в будущее</strong><small>Один вопрос. Два ответа.</small></span><ChevronRight/></button>
               <button onClick={()=>onStory('chapters')}><BookOpen/><span><strong>Главы</strong><small>{chapterCount?`Ваши новые начала · ${chapterCount}`:'Новые начала вашей истории'}</small></span><ChevronRight/></button>
               {chat.serverId && <button onClick={()=>onStory('archive')}><Archive/><span><strong>Архив</strong><small>Моменты и вопросы, которые ты сохранил в архив</small></span><ChevronRight/></button>}

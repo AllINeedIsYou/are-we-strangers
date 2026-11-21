@@ -32,7 +32,7 @@ export class ApiError extends Error {
 
 const fieldNames: Record<string, string> = {
   phone: 'Номер телефона', email: 'Почта', name: 'Имя', username: 'Юзернейм',
-  password: 'Пароль', login: 'Логин', code: 'Код', token: 'Ссылка', bio: 'О себе', birthday: 'Дата рождения',
+  password: 'Пароль', new_password: 'Новый пароль', login: 'Логин', code: 'Код', token: 'Ссылка', bio: 'О себе', birthday: 'Дата рождения',
 };
 
 function errorMessage(payload: unknown, status: number): string {
@@ -108,6 +108,12 @@ export const authApi = {
   logout: () => request<void>('/logout', undefined, { method: 'POST' }),
   requestEmail: () => request<{ expires_at: string }>('/request-email-verification', undefined, { method: 'POST' }),
   verifyEmail: (token: string) => accountRequest('/verify-email', { token }),
+  requestPasswordReset: async (email: string, signal?: AbortSignal) => {
+    const result = await request<{ message: string }>('/request-password-reset', { email: email.trim() }, { signal });
+    if (!result || typeof result.message !== 'string') throw new ApiError(0, 'Не удалось прочитать ответ сервера');
+    return result;
+  },
+  resetPassword: (token: string, new_password: string, signal?: AbortSignal) => request<void>('/reset-password', { token, new_password }, { signal }),
   updateProfile: async (userId: number, data: ProfileUpdate, signal?: AbortSignal): Promise<Account> => {
     const user = checkedAccount(await apiRequest<Account>('/api/user/me', data, { method: 'PATCH', signal }));
     if (user.id !== userId) throw new ApiError(0, 'Сервер вернул данные другого аккаунта');

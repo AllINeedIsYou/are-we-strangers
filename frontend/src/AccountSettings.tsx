@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, KeyRound, Mail, Phone } from 'lucide-react';
 import { ApiError, authApi, friendlyError, type Account } from './authApi';
+import PasswordRecoveryForm from './PasswordRecoveryForm';
 
 type Props = { user: Account; onUpdate: (user: Account) => void; onExpired: () => void };
 
@@ -60,8 +61,8 @@ export default function AccountSettings({ user, onUpdate, onExpired }: Props) {
     <details className="account-security-group">
       <summary><KeyRound /><span>Пароль</span><ChevronRight /></summary>
       <div className="account-security-actions">
-        <button className="security-action" onClick={() => setNotice('password')}><span>Сменить пароль</span><ChevronRight /></button>
-        {notice === 'password' && <p className="security-notice" role="status">Смена пароля через почту появится позже.</p>}
+        <button className="security-action" aria-expanded={notice === 'password'} onClick={() => setNotice(value => value === 'password' ? null : 'password')}><span>Сменить пароль</span><ChevronRight /></button>
+        {notice === 'password' && (verified ? <PasswordRecoveryForm email={user.email} /> : <p className="security-notice" role="status">Сначала подтверди почту в разделе «Почта», затем запроси ссылку для смены пароля.</p>)}
       </div>
     </details>
     <details className="account-security-group">

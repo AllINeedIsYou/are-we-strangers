@@ -88,7 +88,11 @@ def find_user_by_login(session:Session,login:str)->Users|None:
 
 def authenticate_user(session:Session,data:LoginRequest):
     user=find_user_by_login(session=session,login=data.login)
-    if (user is None) or (verify_password(data.password,user.password_hash)==False):
+    if user is None:
+        raise HTTPException(status_code=401, detail='Неверный логин или пароль')
+
+    session.refresh(user, with_for_update=True)
+    if verify_password(data.password,user.password_hash)==False:
         raise HTTPException(status_code=401, detail='Неверный логин или пароль')
 
     if user.phone_verified_at is None:
@@ -97,11 +101,11 @@ def authenticate_user(session:Session,data:LoginRequest):
     return user
 
 def login_user(session:Session,data:LoginRequest):
-    user=authenticate_user(session, data)
     try:
+        user=authenticate_user(session, data)
         new_authsession,token=create_auth_session(session, user)
         session.commit()
-    except SQLAlchemyError:
+    except (HTTPException, SQLAlchemyError):
         session.rollback()
         raise
 

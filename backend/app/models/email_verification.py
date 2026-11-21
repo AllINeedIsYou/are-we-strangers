@@ -21,3 +21,28 @@ class EmailVerification(Base):
     expires_at:Mapped[datetime]=mapped_column(DateTime(timezone=True))
 
     revoked_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),default=None)
+
+
+class PasswordReset(Base):
+    __tablename__ = "passwordreset"
+
+    id:Mapped[int]=mapped_column(primary_key=True)
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+
+    email: Mapped[str] = mapped_column(String(320))
+
+    token_hash:Mapped[str] = mapped_column(String(64), unique=True)
+
+    created_at:Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    expires_at:Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    used_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),default=None)
+
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    
+
+
+

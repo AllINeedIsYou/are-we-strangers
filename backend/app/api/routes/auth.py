@@ -1,11 +1,16 @@
 from typing import Annotated
+from fastapi import APIRouter, HTTPException, Response, Cookie,BackgroundTasks
 
-from fastapi import APIRouter, HTTPException, Response, Cookie
+from backend.app.core.connections import connection_manager
 from backend.app.schemas.auth import RegisterRequest, RegisterResponse, VerifyPhoneRequest, PhoneVerificationResponse, \
     ResendPhoneVerificationRequest, LoginRequest, VerifyEmailRequest, EmailVerificationResponse
+from backend.app.schemas.password_reset import PasswordResetRequest, PasswordResetRequestResponse, \
+    PasswordResetConfirmRequest
 from backend.app.services.auth import register_user, resend_phone_verification,login_user
 from backend.app.services.auth_sessions import revoke_auth_session
 from backend.app.services.email_verification import verify_email_token, request_email_verification
+from backend.app.services.password_reset import request_password_reset, send_password_reset_email_safely, \
+    verify_token_for_reset_password
 from backend.database.session import SessionDep
 from backend.app.core.telegram_config import telegram_settings
 from backend.app.schemas.user import UserResponse
@@ -74,4 +79,17 @@ def send_verification_email(session:SessionDep, user:CurrentUser):
 def verify_email(session:SessionDep,data:VerifyEmailRequest):
     return verify_email_token(session=session,token=data.token)
 
+@auth_router.post('/request-password-reset',response_model=PasswordResetRequestResponse,status_code=202)
+def request_endpoint_password_reset(session:SessionDep,data: PasswordResetRequest,background_tasks: BackgroundTasks):
+    result = request_password_reset(session, data.email)
+    if result is not None:
+        application,token=result
+        background_tasks.add_task(send_password_reset_email_safely,application.email,token)
 
+    return PasswordResetRequestResponse(message="Если для этой почты доступно восстановление,то мы отправим письмо со ссылкой")
+
+@auth_router.post('/reset-password',status_code=204)
+def verify_endpoint_token_for_reset_password(session:SessionDep,data:PasswordResetConfirmRequest,response:Response,background_tasks: BackgroundTasks):
+    user_id = verify_token_for_reset_password(session, data)
+    response.delete_cookie(key="session_token", path="/")
+    background_tasks.add_task(connection_manager.close_user_connections,user_id)

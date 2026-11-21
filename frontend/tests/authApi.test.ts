@@ -101,3 +101,26 @@ test('only HTTPS links on the actual Telegram host can open the verification bot
   assert.equal(telegramLink('https://t.me/test_bot?start=abc'), 'https://t.me/test_bot?start=abc');
   for (const value of ['javascript:alert(1)', 'https://t.me.evil.example/bot', 'http://t.me/bot', 'https://me@t.me/bot', 'not a URL']) assert.equal(telegramLink(value), null);
 });
+
+test('password recovery sends email only; reset preserves the password and accepts empty 204', async t => {
+  const calls: Array<{ url: string; body: unknown }> = [];
+  t.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
+    assert.equal(options.method, 'POST'); assert.equal(options.credentials, 'include');
+    calls.push({ url, body: JSON.parse(String(options.body)) });
+    return url.endsWith('/request-password-reset') ? Response.json({ message: 'Запрос принят' }, { status: 202 }) : new Response(null, { status: 204 });
+  });
+  await authApi.requestPasswordReset('  alex@example.com  ');
+  assert.equal(await authApi.resetPassword('link-token+/?', 'KeepMyCase!'), undefined);
+  assert.deepEqual(calls, [
+    { url: '/api/auth/request-password-reset', body: { email: 'alex@example.com' } },
+    { url: '/api/auth/reset-password', body: { token: 'link-token+/?', new_password: 'KeepMyCase!' } },
+  ]);
+});
+
+test('password reset surfaces invalid links and rejects malformed email-request responses', async t => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ detail: 'Ссылка недействительна или срок её действия истёк' }, { status: 400 }));
+  await assert.rejects(authApi.resetPassword('expired', 'NewSecret'), error => error instanceof ApiError && error.status === 400);
+  t.mock.restoreAll();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ ok: true }));
+  await assert.rejects(authApi.requestPasswordReset('alex@example.com'), /Не удалось прочитать ответ сервера/);
+});

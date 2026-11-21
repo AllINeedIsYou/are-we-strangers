@@ -1,9 +1,7 @@
 from datetime import datetime,timezone,timedelta
 from urllib.parse import urlencode
-
 from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
-
 from backend.app.core.mail import send_email
 from backend.app.core.mail_config import mail_settings
 from backend.app.core.security import generate_token,hash_token
@@ -34,7 +32,7 @@ def verify_email_token(session:Session,token:str):
     query=session.query(EmailVerification).filter(EmailVerification.token_hash==token_hash).with_for_update().first()
     now = datetime.now(timezone.utc)
     if (query is None) or (query.used_at!=None) or (query.revoked_at!=None) or (query.expires_at<=now):
-        raise HTTPException(status_code=400, detail='Ссылка недействительна или срок её действия истёк')
+            raise HTTPException(status_code=400, detail='Ссылка недействительна или срок её действия истёк')
 
     user = session.get(Users, query.user_id)
     if (user is None) or (user.email!=query.email):

@@ -11,6 +11,7 @@ class MailSettings(BaseSettings):
     SMTP_USERNAME:EmailStr
     SMTP_PASSWORD:SecretStr
     EMAIL_VERIFICATION_URL:HttpUrl
+    PASSWORD_RESET_URL: HttpUrl
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
