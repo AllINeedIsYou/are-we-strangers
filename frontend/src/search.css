@@ -28,6 +28,10 @@
 .search-no-results>svg{width:23px;height:23px;stroke-width:1.4}
 .search-no-results p{font-size:13px;color:#d5cbd8;margin:11px 0 6px}
 .search-no-results span{font-size:11px}
+.search-request-status{text-align:center;padding:12px;font-size:12px;color:#c4b6be;margin:0;overflow-wrap:anywhere}
+.search-request-status p{margin:0 0 8px;color:#ed8ca3}
+.search-request-status button,.search-more{display:block;margin:0 auto;padding:9px 14px;font-size:12px;color:#e8d5de}
+.search-more{width:100%;border-top:1px solid #ffffff12}
 .conversation:has(.conversation-search) .messages-scroll{padding-top:116px}
 .conversation:has(.conversation-search) .pinned-bar{display:none}
 @media(max-width:760px){

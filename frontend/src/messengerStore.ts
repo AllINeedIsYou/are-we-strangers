@@ -5,7 +5,8 @@ import { isChapterEvent, type ChapterDecision, type ServerChapter } from './mess
 import { ArchiveStore } from './archiveStore.ts';
 
 type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'offline';
-type HistoryStatus = { loading: boolean; hasOlder: boolean; error: string };
+type HistoryStatus = { loading: boolean; hasOlder: boolean; error: string;
+  range?: { first: number; last: number; target: number }; hasNewer?: boolean; loadingNewer?: boolean; newerError?: string };
 type MomentsStatus = { loading: boolean; error: string };
 type QuestionList = { cards: ServerFutureQuestion[]; loading: boolean; error: string };
 type ChapterList = { cards: ServerChapter[]; loading: boolean; error: string };
@@ -34,7 +35,9 @@ export class MessengerStore {
   private attempts = 0;
   private refreshJob: Promise<void> | null = null;
   private refreshQueued = false;
-  private olderJobs = new Set<string>();
+  private olderJobs = new Map<string, symbol | undefined>();
+  private newerJobs = new Map<string, symbol | undefined>();
+  private contextRequests = new Map<string, symbol>();
   private syncedThrough = new Map<number, number>();
   private selectedChat = '';
   private pinRequests = new Map<string, symbol>();
@@ -44,6 +47,7 @@ export class MessengerStore {
   private chapterWrites = new Set<string>();
   private sequence = 0;
   private versions = new Map<number, number>();
+  private editedMessages = new Map<number, ServerMessage>();
   private readIds = new Set<number>();
   private hiddenIds = new Set<number>();
   private reading = new Set<number>();
@@ -58,6 +62,18 @@ export class MessengerStore {
     this.archives = new ArchiveStore(this.api, () => { this.stop(); this.options.onExpired(); });
   }
   getSnapshot = () => this.snapshot;
+  getSequence = () => this.sequence;
+  messageVersion = (id: number) => this.versions.get(id) || 0;
+  messageHidden = (id: number) => this.hiddenIds.has(id);
+  editedMessage = (id: number) => {
+    const row = this.editedMessages.get(id);
+    return row ? toMessage(row, this.ownId) : undefined;
+  };
+  messagesForChat = (key: string) => {
+    const range = this.snapshot.history[key]?.range;
+    return this.snapshot.state.messages.filter(message => message.chatId === key
+      && (!range || (message.serverId! >= range.first && message.serverId! <= range.last)));
+  };
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private update(patch: Partial<MessengerSnapshot>) {
     this.snapshot = { ...this.snapshot, ...patch };
@@ -80,6 +96,7 @@ export class MessengerStore {
     this.archives.stop();
     this.active = false; this.epoch++; this.abort.abort(); this.clearSocketTimers();
     clearTimeout(this.retryTimer); clearTimeout(this.metadataTimer); this.refreshJob = null; this.refreshQueued = false; this.olderJobs.clear();
+    this.newerJobs.clear(); this.contextRequests.clear();
     for (const animation of this.deletionAnimations.values()) animation.abort.abort();
     this.deletionAnimations.clear();
     this.pinRequests.clear();
@@ -372,8 +389,14 @@ export class MessengerStore {
   }
   private merge(messages: ServerMessage[], started = Infinity) {
     for (const message of messages) if (message.is_read) this.readIds.add(message.id);
-    const incoming = messages.filter(message => !this.hiddenIds.has(message.id) && (this.versions.get(message.id) || 0) <= started)
-      .map(message => toMessage({ ...message, is_read: message.is_read || this.readIds.has(message.id) || this.pendingReads.has(message.id) }, this.ownId));
+    const existing = new Set(this.snapshot.state.messages.map(message => message.serverId));
+    const incoming = messages.flatMap(row => {
+      if (this.hiddenIds.has(row.id)) return [];
+      const changed = (this.versions.get(row.id) || 0) > started;
+      if (changed && existing.has(row.id)) return [];
+      const message = changed ? this.editedMessages.get(row.id) ?? row : row;
+      return [toMessage({ ...message, is_read: message.is_read || this.readIds.has(message.id) || this.pendingReads.has(message.id) }, this.ownId)];
+    });
     this.update({ state: { ...this.snapshot.state, messages: mergeMessages(this.snapshot.state.messages, incoming) } });
   }
   private metadataChanged() {
@@ -392,6 +415,10 @@ export class MessengerStore {
     if (seen) return;
     this.versions.set(message.id, ++this.sequence);
     this.merge([message]);
+    const history = this.snapshot.history[mapped.chatId];
+    if (history?.range && !history.hasNewer && message.id > history.range.last) {
+      this.historyStatus(mapped.chatId, { range: { ...history.range, last: message.id } });
+    }
     if (!seen && !mapped.own) {
       this.update({ state: { ...this.snapshot.state, chats: this.snapshot.state.chats.map(chat => chat.id === mapped.chatId ? { ...chat, unread: chat.unread + (message.is_read ? 0 : 1) } : chat) } });
       this.options.onIncoming(mapped.chatId);
@@ -446,8 +473,10 @@ export class MessengerStore {
   }
   private receiveEdit(message: ServerMessage) {
     this.versions.set(message.id, ++this.sequence);
+    this.editedMessages.set(message.id, message);
     const key = chatKey(message.chat_id);
     if (this.snapshot.state.messages.some(item => item.serverId === message.id && item.chatId === key)) this.merge([message]);
+    else this.update({ state: { ...this.snapshot.state } });
     if (this.pinRequests.has(key) || this.snapshot.pins[key]?.some(pin => pin.serverId === message.id)) void this.loadPins(key);
   }
   private startDeletionAnimation(ids: number[]) {
@@ -517,6 +546,7 @@ export class MessengerStore {
   };
   private async syncChat(serverId: number, epoch: number) {
     const key = chatKey(serverId);
+    if (this.snapshot.history[key]?.range) { await this.syncContext(key, serverId, epoch); return; }
     // Live events can arrive ahead of a reconnect history fetch. Use the last completed
     // history checkpoint, not the newest live ID, or messages inside the gap can be skipped.
     const newest = this.syncedThrough.get(serverId) || 0;
@@ -532,7 +562,7 @@ export class MessengerStore {
       while (this.current(epoch)) {
         const started = this.sequence;
         const page = await this.api.messages(serverId, before, this.abort.signal);
-        if (!this.current(epoch)) return;
+        if (!this.current(epoch) || this.snapshot.history[key]?.range) return;
         this.reconcilePage(serverId, page, before, started);
         checkpoint = Math.max(checkpoint, ...page.map(message => message.id));
         if (firstPage && !hadHistory) this.historyStatus(key, { hasOlder: page.length === 50 });
@@ -561,20 +591,121 @@ export class MessengerStore {
   }
   loadOlder = async (key: string) => {
     const chat = this.snapshot.state.chats.find(item => item.id === key);
-    if (!chat?.serverId || this.olderJobs.has(key) || this.snapshot.history[key]?.loading) return;
+    const request = this.contextRequests.get(key);
+    if (!chat?.serverId || (this.olderJobs.has(key) && this.olderJobs.get(key) === request) || this.snapshot.history[key]?.loading) return;
     const epoch = this.epoch;
-    const oldest = this.snapshot.state.messages.filter(message => message.chatId === key).reduce((min, message) => Math.min(min, message.serverId || Infinity), Infinity);
-    this.olderJobs.add(key); this.historyStatus(key, { loading: true, error: '' });
+    const oldest = this.messagesForChat(key).reduce((min, message) => Math.min(min, message.serverId || Infinity), Infinity);
+    this.olderJobs.set(key, request); this.historyStatus(key, { loading: true, error: '' });
     try {
       const started = this.sequence;
       const page = await this.api.messages(chat.serverId, Number.isFinite(oldest) ? oldest : undefined, this.abort.signal);
-      if (!this.current(epoch)) return;
-      this.merge(page, started); this.historyStatus(key, { loading: false, hasOlder: page.length === 50, error: '' });
+      if (!this.current(epoch) || this.contextRequests.get(key) !== request) return;
+      this.merge(page, started);
+      const range = this.snapshot.history[key]?.range;
+      this.historyStatus(key, { loading: false, hasOlder: page.length === 50, error: '',
+        ...(range && page.length ? { range: { ...range, first: Math.min(range.first, ...page.map(row => row.id)) } } : {}) });
     } catch (error) {
-      if (this.current(epoch)) { this.historyStatus(key, { loading: false, error: friendlyError(error) }); this.handleError(error, epoch); }
-    } finally { if (this.current(epoch)) this.olderJobs.delete(key); }
+      if (this.current(epoch) && this.contextRequests.get(key) === request) { this.historyStatus(key, { loading: false, error: friendlyError(error) }); this.handleError(error, epoch); }
+    } finally { if (this.current(epoch) && this.olderJobs.get(key) === request) this.olderJobs.delete(key); }
   };
+  openMessageContext = async (key: string, messageId: number, signal: AbortSignal) => {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!this.active || !chatId) return false;
+    const epoch = this.epoch, request = Symbol(), started = this.sequence;
+    this.contextRequests.set(key, request);
+    const cancellation = AbortSignal.any([signal, this.abort.signal]);
+    try {
+      const page = await this.api.messageContext(chatId, messageId, cancellation);
+      if (!this.current(epoch) || cancellation.aborted || this.contextRequests.get(key) !== request) return false;
+      this.merge(page, started);
+      if (this.hiddenIds.has(messageId)) throw new ApiError(404, 'Сообщение больше недоступно');
+      this.historyStatus(key, { loading: false, error: '', newerError: '', loadingNewer: false,
+        range: { first: page[0].id, last: page.at(-1)!.id, target: messageId },
+        hasOlder: page.filter(row => row.id < messageId).length === 50,
+        hasNewer: page.filter(row => row.id > messageId).length === 50 });
+      return true;
+    } catch (error) {
+      if (!this.current(epoch) || cancellation.aborted || this.contextRequests.get(key) !== request) return false;
+      this.historyStatus(key, { loading: false, loadingNewer: false });
+      this.handleError(error, epoch); throw error;
+    } finally {
+      if (this.current(epoch) && cancellation.aborted && this.contextRequests.get(key) === request) this.historyStatus(key, { loading: false, loadingNewer: false });
+    }
+  };
+  loadNewer = async (key: string) => {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    const history = this.snapshot.history[key];
+    const request = this.contextRequests.get(key);
+    if (!this.active || !chatId || !history?.range || !history.hasNewer || history.loading || (this.newerJobs.has(key) && this.newerJobs.get(key) === request)) return;
+    const epoch = this.epoch, after = history.range.last, started = this.sequence;
+    this.newerJobs.set(key, request); this.historyStatus(key, { loadingNewer: true, newerError: '' });
+    try {
+      const page = await this.api.messagesAfter(chatId, after, this.abort.signal);
+      const range = this.snapshot.history[key]?.range;
+      if (!this.current(epoch) || this.contextRequests.get(key) !== request || !range) return;
+      this.merge(page, started);
+      this.historyStatus(key, { range: { ...range, last: Math.max(range.last, ...page.map(row => row.id)) },
+        hasNewer: page.length === 50, loadingNewer: false, newerError: '' });
+    } catch (error) {
+      if (this.current(epoch) && this.contextRequests.get(key) === request) {
+        this.historyStatus(key, { loadingNewer: false, newerError: friendlyError(error) }); this.handleError(error, epoch);
+      }
+    } finally { if (this.current(epoch) && this.newerJobs.get(key) === request) this.newerJobs.delete(key); }
+  };
+  returnToLatest = async (key: string) => {
+    const chatId = this.snapshot.state.chats.find(chat => chat.id === key)?.serverId;
+    if (!this.active || !chatId) return false;
+    const epoch = this.epoch, request = Symbol(), started = this.sequence;
+    this.contextRequests.set(key, request); this.historyStatus(key, { loading: true, loadingNewer: false, error: '' });
+    try {
+      const page = await this.api.messages(chatId, undefined, this.abort.signal);
+      if (!this.current(epoch) || this.contextRequests.get(key) !== request) return false;
+      const last = Math.max(0, ...page.map(row => row.id));
+      const returned = new Set(page.map(row => row.id));
+      this.update({ state: { ...this.snapshot.state, messages: this.snapshot.state.messages.filter(message =>
+        message.chatId !== key || returned.has(message.serverId!)
+        || (message.serverId! > last && (this.versions.get(message.serverId!) || 0) > started)) } });
+      this.merge(page, started);
+      this.syncedThrough.set(chatId, last);
+      this.historyStatus(key, { loading: false, hasOlder: page.length === 50, error: '', range: undefined,
+        hasNewer: false, loadingNewer: false, newerError: '' });
+      return true;
+    } catch (error) {
+      if (!this.current(epoch) || this.contextRequests.get(key) !== request) return false;
+      this.historyStatus(key, { loading: false }); this.handleError(error, epoch); throw error;
+    }
+  };
+  private async syncContext(key: string, serverId: number, epoch: number) {
+    const range = this.snapshot.history[key]?.range, request = this.contextRequests.get(key), started = this.sequence;
+    if (!range) return;
+    const valid = () => this.current(epoch) && this.contextRequests.get(key) === request && !!this.snapshot.history[key]?.range;
+    try {
+      const rows: ServerMessage[] = [];
+      let before = range.last + 1;
+      while (valid() && before > range.first) {
+        const page = await this.api.messages(serverId, before, this.abort.signal);
+        if (!valid()) return;
+        rows.push(...page);
+        if (!page.length) break;
+        const oldest = Math.min(...page.map(row => row.id));
+        if (oldest >= before) throw new ApiError(0, 'Некорректная страница переписки');
+        before = oldest;
+        if (page.length < 50) break;
+      }
+      if (!valid()) return;
+      const returned = new Set(rows.map(row => row.id));
+      this.update({ state: { ...this.snapshot.state, messages: this.snapshot.state.messages.filter(message =>
+        message.chatId !== key || message.serverId! < range.first || message.serverId! > range.last
+        || returned.has(message.serverId!) || (this.versions.get(message.serverId!) || 0) > started || this.deletions.has(message.serverId!)) } });
+      this.merge(rows, started);
+      const latest = await this.api.messages(serverId, undefined, this.abort.signal);
+      if (!valid()) return;
+      this.merge(latest, started);
+      if (latest.some(row => row.id > this.snapshot.history[key].range!.last)) this.historyStatus(key, { hasNewer: true });
+    } catch (error) { if (valid()) this.handleError(error, epoch); }
+  }
   loadChapterStart = async (key: string, startedAt: string, signal: AbortSignal) => {
+    if (this.snapshot.history[key]?.range && !await this.returnToLatest(key)) return false;
     const epoch = this.epoch;
     const started = Date.parse(startedAt);
     if (!Number.isFinite(started)) return false;
@@ -649,6 +780,7 @@ export class MessengerStore {
     }
   };
   prepareChat = async (key: string) => {
+    if (this.snapshot.history[key]?.range) return;
     // The API provides a count, not a first-unread cursor. Walk back until the
     // oldest unread is loaded; never mark the newest page while this is running.
     while (this.active && this.selectedChat === key && this.snapshot.history[key]?.hasOlder) {

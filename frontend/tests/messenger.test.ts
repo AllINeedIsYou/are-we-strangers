@@ -124,6 +124,121 @@ test('older history uses the lowest ID, merges chronologically, and handles an e
   assert.equal(h.store.getSnapshot().state.messages.length, 52);
 });
 
+test('server search, direct context and forward pagination use exact authenticated GET routes', async t => {
+  const requests: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
+    requests.push(url); assert.equal(options.method, 'GET'); assert.equal(options.credentials, 'include'); assert.equal(options.body, undefined);
+    return Response.json(url.includes('/search?') ? [message(40), message(20)] : url.includes('/context') ? [message(9), message(10), message(11)] : [message(101), message(102)]);
+  });
+  await messengerApi.searchMessages(7, '  100% _ & море  ', 50);
+  await messengerApi.messageContext(7, 10);
+  await messengerApi.messagesAfter(7, 100);
+  const search = new URL(requests[0], 'http://test');
+  assert.equal(search.pathname, '/api/chats/7/messages/search');
+  assert.equal(search.searchParams.get('q'), '100% _ & море'); assert.equal(search.searchParams.get('before_id'), '50');
+  assert.equal(requests[1], '/api/chats/7/messages/10/context'); assert.equal(requests[2], '/api/chats/7/messages?after_id=100');
+});
+
+test('search and context reject foreign, duplicate, misordered and nonadvancing responses', async t => {
+  for (const rows of [[message(1), message(2)], [message(2), message(2)], [{ ...message(2), chat_id: 8 }]]) {
+    t.mock.method(globalThis, 'fetch', async () => Response.json(rows));
+    await assert.rejects(messengerApi.searchMessages(7, 'text'), ApiError); t.mock.restoreAll();
+  }
+  t.mock.method(globalThis, 'fetch', async () => Response.json([message(9)]));
+  await assert.rejects(messengerApi.messageContext(7, 10), ApiError);
+  await assert.rejects(messengerApi.messagesAfter(7, 10), ApiError);
+});
+
+test('context reconnect reconciles missed edits/deletions without bridging to the latest page', async t => {
+  let rows = [message(1), message(2), message(3)];
+  const h = harness({
+    messages: async (_chat, before) => before === undefined ? [message(100)] : rows.filter(row => row.id < before),
+    messageContext: async () => rows,
+  });
+  t.after(() => h.store.stop()); h.store.start(); await tick();
+  await h.store.openMessageContext('server-7', 2, new AbortController().signal);
+  rows = [{ ...message(2), text: 'Edited offline' }, message(3)];
+  await h.store.refresh();
+  assert.deepEqual(h.store.messagesForChat('server-7').map(row => row.serverId), [2, 3]);
+  assert.equal(h.store.messagesForChat('server-7')[0].text, 'Edited offline');
+  assert.equal(h.store.getSnapshot().history['server-7'].hasNewer, true);
+});
+
+test('search context keeps a contiguous window, pages both directions and returns directly to latest', async t => {
+  let latest = 1000;
+  const page = (first: number, last: number) => Array.from({ length: Math.max(0, last - first + 1) }, (_, i) => message(first + i, 3));
+  const calls: Array<number | undefined> = [];
+  const h = harness({
+    messages: async (_chat, before) => { calls.push(before); return before === undefined ? page(latest - 49, latest) : page(Math.max(1, before - 50), before - 1); },
+    messageContext: async () => page(70, 170),
+    messagesAfter: async (_chat, after) => page(after + 1, Math.min(latest, after + 50)),
+  });
+  t.after(() => h.store.stop()); h.store.start(); await tick(); h.store.selectChat('server-7');
+  assert.equal(await h.store.openMessageContext('server-7', 120, new AbortController().signal), true);
+  assert.equal(h.store.messagesForChat('server-7').length, 101);
+  assert.equal(h.store.messagesForChat('server-7').at(-1)?.serverId, 170);
+  assert.ok(h.store.getSnapshot().state.messages.some(row => row.serverId === 1000), 'latest cache is preserved but hidden outside context');
+  await h.store.loadOlder('server-7'); assert.equal(calls.at(-1), 70);
+  assert.equal(h.store.messagesForChat('server-7')[0].serverId, 20);
+  await h.store.loadNewer('server-7'); assert.equal(h.store.messagesForChat('server-7').at(-1)?.serverId, 220);
+  latest = 1001; h.sockets[0].event({ type: 'message.created', message: message(latest, 3) });
+  assert.equal(h.store.messagesForChat('server-7').at(-1)?.serverId, 220, 'incoming message cannot bridge an unloaded gap');
+  await h.store.returnToLatest('server-7');
+  assert.equal(h.store.getSnapshot().history['server-7'].range, undefined);
+  assert.deepEqual(h.store.messagesForChat('server-7').map(row => row.serverId), page(952, 1001).map(row => row.id));
+});
+
+test('late context responses, aborted navigation and logout cannot replace the current window', async t => {
+  const pending: Array<(rows: ServerMessage[]) => void> = [];
+  const h = harness({ messageContext: async () => new Promise(resolve => pending.push(resolve)) });
+  t.after(() => h.store.stop()); h.store.start(); await tick();
+  const first = h.store.openMessageContext('server-7', 10, new AbortController().signal);
+  const second = h.store.openMessageContext('server-7', 20, new AbortController().signal);
+  pending[1]([message(20)]); assert.equal(await second, true);
+  pending[0]([message(10)]); assert.equal(await first, false);
+  assert.deepEqual(h.store.messagesForChat('server-7').map(row => row.serverId), [20]);
+  const controller = new AbortController(); const aborted = h.store.openMessageContext('server-7', 30, controller.signal);
+  controller.abort(); pending[2]([message(30)]); assert.equal(await aborted, false);
+  assert.deepEqual(h.store.messagesForChat('server-7').map(row => row.serverId), [20]);
+  const stopped = h.store.openMessageContext('server-7', 40, new AbortController().signal);
+  h.store.stop(); pending[3]([message(40)]); assert.equal(await stopped, false);
+});
+
+test('context respects edits and deletion events that arrive before its HTTP response', async t => {
+  let resolve!: (rows: ServerMessage[]) => void;
+  const h = harness({ messageContext: async () => new Promise(done => { resolve = done; }) });
+  t.after(() => h.store.stop()); h.store.start(); await tick();
+  const loading = h.store.openMessageContext('server-7', 10, new AbortController().signal);
+  h.sockets[0].event({ type: 'message.updated', message: { ...message(10), text: 'Updated', is_edited: true } });
+  h.sockets[0].event({ type: 'messages.read', reader_id: 3, chat_id: 7, message_ids: [10] });
+  resolve([message(10)]); assert.equal(await loading, true);
+  assert.equal(h.store.messagesForChat('server-7')[0].text, 'Updated');
+  assert.equal(h.store.messagesForChat('server-7')[0].read, true);
+  const deleted = h.store.openMessageContext('server-7', 11, new AbortController().signal);
+  h.sockets[0].event({ type: 'messages.deleted', actor_id: 3, chat_id: 7, message_ids: [11], scope: 'self' });
+  resolve([message(11)]); await assert.rejects(deleted, error => error instanceof ApiError && error.status === 404);
+  assert.equal(h.store.messagesForChat('server-7').some(row => row.serverId === 11), false);
+});
+
+test('newer-page failure is explicit and a late page cannot expand another search context', async t => {
+  let fail = true, finish!: (rows: ServerMessage[]) => void, calls = 0;
+  const page = (first: number, last: number) => Array.from({ length: last - first + 1 }, (_, i) => message(first + i));
+  const h = harness({
+    messageContext: async (_chat, id) => page(id - 50, id + 50),
+    messagesAfter: async () => { calls++; if (fail) throw new ApiError(503, 'Offline'); return new Promise(resolve => { finish = resolve; }); },
+  });
+  t.after(() => h.store.stop()); h.store.start(); await tick();
+  await h.store.openMessageContext('server-7', 100, new AbortController().signal);
+  await h.store.loadNewer('server-7'); await tick();
+  assert.equal(calls, 1); assert.equal(h.store.getSnapshot().history['server-7'].newerError, 'Offline');
+  assert.equal(h.store.messagesForChat('server-7').at(-1)?.serverId, 150);
+  fail = false; const pending = h.store.loadNewer('server-7');
+  await h.store.loadNewer('server-7'); assert.equal(calls, 2, 'duplicate pending page is ignored');
+  await h.store.openMessageContext('server-7', 500, new AbortController().signal);
+  finish(page(151, 200)); await pending;
+  assert.deepEqual(h.store.getSnapshot().history['server-7'].range, { first: 450, last: 550, target: 500 });
+});
+
 test('resync recovers more than 50 missed messages even if a newer live event already arrived', async t => {
   let newest = 10;
   const h = harness({ messages: async (_chat, before) => {

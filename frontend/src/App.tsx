@@ -36,12 +36,13 @@ import EmailConfirmation from './EmailConfirmation';
 import PasswordReset from './PasswordReset';
 import PasswordRecoveryForm from './PasswordRecoveryForm';
 import useAuthSession from './useAuthSession';
-import { authApi, friendlyError } from './authApi';
+import { ApiError, authApi, friendlyError } from './authApi';
 import useMessenger from './useMessenger';
 import useReadTracking from './useReadTracking';
 import useFutureQuestionClock from './useFutureQuestionClock';
 import useHiddenQuestions from './useHiddenQuestions';
 import useDragSelection from './useDragSelection';
+import useAutoHistory from './useAutoHistory';
 import useUserSearch from './useUserSearch';
 import type { ArchiveKind, PublicUser, ServerChapter, ServerFutureQuestion } from './messengerApi';
 import type { Moment } from './domain';
@@ -108,6 +109,8 @@ export default function App() {
   const [openError, setOpenError] = useState('');
   const [messageSearch, setMessageSearch] = useState<string | null>(null);
   const [searchActiveId,setSearchActiveId]=useState<string|null>(null);
+  const searchNavigation = useRef<AbortController | null>(null);
+  const [searchNavigating, setSearchNavigating] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [attachment, setAttachment] = useState<{ chatId: string; items: MediaAsset[] } | null>(null);
   const [preparingFiles, setPreparingFiles] = useState(false);
@@ -183,8 +186,8 @@ export default function App() {
   const results = useUserSearch(search, account?.id ?? null, !!account && !demoMode, clearUser);
   const newResults = useUserSearch(newSearch, account?.id ?? null, !!account && !demoMode && modal === 'new-chat', clearUser);
   const chat = state.chats.find(item => item.id === chatId) || ((demoMode || archive.data) ? state.chats.find(item => demoMode || !archivedChatIds.has(item.serverId!)) : undefined) || emptyChat;
-  const messages = state.messages.filter(item => item.chatId === chat.id);
-  const messagesById = new Map(messages.map(message => [message.id, message]));
+  const messages = !demoMode && live.store ? live.store.messagesForChat(chat.id) : state.messages.filter(item => item.chatId === chat.id);
+  const messagesById = new Map(state.messages.filter(message => message.chatId === chat.id).map(message => [message.id, message]));
   const replySource = replyTo ? messagesById.get(replyTo.id) : undefined;
   const replyPreview = !demoMode && replyTo
     ? replySource ? quoteFor(replySource) : { ...replyTo, text: 'Исходное сообщение недоступно', author: 'Ответ на сообщение' }
@@ -212,8 +215,12 @@ export default function App() {
     ? demoQuestions.map(question => Date.parse(`${question.date}T00:00:00`))
     : futureQuestionCards.map(card => Date.parse(card.opens_at)));
   const questionNotices = new Map<string | null, ServerFutureQuestion[]>();
+  const history = live.history[chat.id];
+  const timelineVisible = (time: number) => !history?.range || (!!messages.length
+    && (!history.hasOlder || time >= Date.parse(messages[0].createdAt!))
+    && (!history.hasNewer || time <= Date.parse(messages.at(-1)!.createdAt!)));
   if (!demoMode && messageSearch === null) {
-    const openQuestions = futureQuestionCards.filter(card => !hiddenQuestions.has(card.id) && !archivedQuestionIds.has(card.id) && Date.parse(card.opens_at) <= questionClock)
+    const openQuestions = futureQuestionCards.filter(card => !hiddenQuestions.has(card.id) && !archivedQuestionIds.has(card.id) && Date.parse(card.opens_at) <= questionClock && timelineVisible(Date.parse(card.opens_at)))
       .sort((first, second) => Date.parse(first.opens_at) - Date.parse(second.opens_at) || first.id - second.id);
     for (const card of openQuestions) {
       const openedAt = Date.parse(card.opens_at);
@@ -226,7 +233,7 @@ export default function App() {
   }
   const chapterProposals = new Map<string | null, ServerChapter[]>();
   if (!demoMode && messageSearch === null) {
-    for (const chapter of chapterCards.filter(card => card.status === 'pending')) {
+    for (const chapter of chapterCards.filter(card => card.status === 'pending' && timelineVisible(Date.parse(card.created_at)))) {
       const proposedAt = Date.parse(chapter.created_at);
       const nextMessage = messages.find(message => message.createdAt && Date.parse(message.createdAt) >= proposedAt);
       const key = nextMessage?.id ?? null;
@@ -235,12 +242,14 @@ export default function App() {
       chapterProposals.set(key, proposals);
     }
   }
-  const history = live.history[chat.id];
   const chapterMarkers = !demoMode && messageSearch === null && history && chaptersStatus
-    ? placeChapterBoundaries(chapterStarts, messages, history.hasOlder) : new Map<string | null, ChapterBoundary[]>();
+    ? placeChapterBoundaries(chapterStarts.filter(chapter => timelineVisible(Date.parse(chapter.startedAt))), messages, history.hasOlder) : new Map<string | null, ChapterBoundary[]>();
   const showFirstChapter = demoMode;
   const sending = !demoMode && !!live.sending[chat.id];
-  const olderAnchor = useRef<{ chatId: string; height: number; top: number } | null>(null);
+  const historyTop = useRef<HTMLDivElement>(null);
+  const historyBottom = useRef<HTMLDivElement>(null);
+  const olderRequests = useRef(new Set<string>());
+  const olderAnchor = useRef<{ chatId: string; ownerId: number | undefined; height: number; top: number; beforeId: number; messageId?: string; offset?: number } | null>(null);
   const draftVersions = useRef<Record<string, number>>({});
   const ownerRef = useRef(account?.id); ownerRef.current = account?.id;
   const viewRevision = useRef(0);
@@ -248,6 +257,19 @@ export default function App() {
     viewKey: !demoMode && stage === 'chat' && (wide || mobileChat) && chat.id ? `${account?.id}:${chat.id}:${wide || mobileChat}` : '',
     chatId: chat.id, store: live.store, messages, history, scroll, conversation, followBottom,
     obscured: !!(contactVisible || modal || panel || messageMenu || momentIds || forwardIds || deleteIds || menuOpen || emojiOpen || messageSearch !== null),
+  });
+  useAutoHistory({
+    scroll, boundary: historyTop, viewKey: `${account?.id}:${chat.id}`,
+    enabled: !demoMode && stage === 'chat' && (wide || mobileChat) && readEntry.ready
+      && !contactVisible && !modal && !panel && (messageSearch === null || !!history?.range) && !searchNavigating,
+    history, load: loadOlder,
+  });
+  useAutoHistory({
+    scroll, boundary: historyBottom, viewKey: `${account?.id}:${chat.id}`, direction: 'newer',
+    enabled: !demoMode && stage === 'chat' && (wide || mobileChat) && readEntry.ready
+      && !contactVisible && !modal && !panel && !searchNavigating,
+    history: { loading: !!(history?.loadingNewer || history?.loading), hasOlder: !!history?.hasNewer, error: history?.newerError ?? '' },
+    load: async () => { await live.store?.loadNewer(chat.id); },
   });
   useDragSelection({
     scroll,
@@ -355,16 +377,18 @@ export default function App() {
     const node = scroll.current;
     if (!node) return;
     const anchor = olderAnchor.current;
-    if (anchor?.chatId === chat.id) {
-      node.scrollTop = anchor.top + node.scrollHeight - anchor.height;
+    if (anchor?.chatId === chat.id && anchor.ownerId === account?.id && (history?.hasOlder === false || messages.some(message => message.serverId && message.serverId < anchor.beforeId))) {
+      const row = anchor.messageId ? node.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchor.messageId)}"]`) : null;
+      if (row && anchor.offset !== undefined) node.scrollTop += row.getBoundingClientRect().top - node.getBoundingClientRect().top - anchor.offset;
+      else node.scrollTop = anchor.top + node.scrollHeight - anchor.height;
       olderAnchor.current = null;
     } else if (followBottom.current && (demoMode || readEntry.ready)) node.scrollTop = node.scrollHeight;
-  }, [chat.id, messages.length, stage, mobileChat, replyTo?.id, editing?.messageId]);
+  }, [chat.id, account?.id, messages.length, history?.hasOlder, history?.range, stage, mobileChat, replyTo?.id, editing?.messageId]);
   useEffect(() => {
     const node = scroll.current;
     if (!node || stage !== 'chat') return;
     followBottom.current = demoMode;
-    function onScroll() { if (node && performance.now()-scrollIntent.current<800 && scrollIntent.current>0) followBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80; }
+    function onScroll() { if (node && performance.now()-scrollIntent.current<800 && scrollIntent.current>0) followBottom.current = !live.store?.getSnapshot().history[chat.id]?.hasNewer && node.scrollHeight - node.scrollTop - node.clientHeight < 80; }
     function intent(){scrollIntent.current=performance.now();}
     node.addEventListener('wheel',intent,{passive:true});node.addEventListener('touchmove',intent,{passive:true});
     node.addEventListener('scroll', onScroll, { passive: true });
@@ -418,12 +442,31 @@ export default function App() {
   }
   async function loadOlder() {
     const node = scroll.current, key = chat.id;
-    if (!node || !live.store || history?.loading) return;
+    const requestKey = `${account?.id}:${key}:${history?.range?.target ?? 'latest'}`;
+    if (!node || !live.store || olderRequests.current.has(requestKey) || history?.loading || (!history?.hasOlder && !history?.error)) return;
+    olderRequests.current.add(requestKey);
     followBottom.current = false;
-    const anchor = { chatId: key, height: node.scrollHeight, top: node.scrollTop };
+    const anchor: NonNullable<typeof olderAnchor.current> = {
+      chatId: key, ownerId: account?.id, height: node.scrollHeight, top: node.scrollTop,
+      beforeId: messages.reduce((oldest, message) => Math.min(oldest, message.serverId ?? Infinity), Infinity),
+    };
+    function capture() {
+      const top = Math.max(node!.getBoundingClientRect().top, conversation.current?.querySelector('.conversation-header')?.getBoundingClientRect().bottom ?? 0);
+      const row = [...node!.querySelectorAll<HTMLElement>('[data-message-id]')].find(element => element.getBoundingClientRect().bottom > top);
+      anchor.top = node!.scrollTop; anchor.height = node!.scrollHeight;
+      anchor.messageId = row?.dataset.messageId;
+      anchor.offset = row ? row.getBoundingClientRect().top - node!.getBoundingClientRect().top : undefined;
+    }
+    capture();
     olderAnchor.current = anchor;
-    await live.store.loadOlder(key);
-    requestAnimationFrame(() => { if (olderAnchor.current === anchor) olderAnchor.current = null; });
+    const track = () => { if (olderAnchor.current === anchor && activeChatRef.current === key && ownerRef.current === anchor.ownerId) capture(); };
+    node.addEventListener('scroll', track, { passive: true });
+    try { await live.store.loadOlder(key); }
+    finally {
+      olderRequests.current.delete(requestKey);
+      node.removeEventListener('scroll', track);
+      requestAnimationFrame(() => { if (olderAnchor.current === anchor) olderAnchor.current = null; });
+    }
   }
   async function signOut() {
     if (loggingOut) return;
@@ -453,7 +496,15 @@ export default function App() {
         if (edit) setEditing(previous => previous?.messageId === edit.messageId ? null : previous);
         else if (reply) setReplyTo(previous => previous === reply ? null : previous);
         if (activeChatRef.current === key) {
-          if (!edit) { followBottom.current = true; requestAnimationFrame(() => { if (scroll.current && activeChatRef.current === key) scroll.current.scrollTop = scroll.current.scrollHeight; }); }
+          if (!edit) {
+            followBottom.current = true;
+            if (live.store.getSnapshot().history[key]?.range) {
+              try { await live.store.returnToLatest(key); }
+              catch { if (activeChatRef.current === key) setInlineError('Сообщение отправлено. Не удалось загрузить конец переписки — нажми кнопку прокрутки вниз ещё раз.'); }
+            }
+            if (activeChatRef.current !== key || ownerRef.current !== owner) return;
+            requestAnimationFrame(() => { if (scroll.current && activeChatRef.current === key) scroll.current.scrollTop = scroll.current.scrollHeight; });
+          }
           setEmojiOpen(false); composer.current?.focus();
         }
       } catch (error) {
@@ -508,10 +559,31 @@ export default function App() {
     setSelectedIds(previous => previous.includes(messageId) ? previous.filter(item => item !== messageId) : !demoMode && previous.length >= 100 ? previous : [...previous, messageId]);
   }
   useEffect(()=>{setSearchActiveId(null);if(messageSearch!==null)followBottom.current=false;},[messageSearch,chat.id]);
-  function navigateSearch(messageId:string){
+  useEffect(() => {
+    searchNavigation.current?.abort(); setSearchNavigating(false);
+    return () => searchNavigation.current?.abort();
+  }, [chat.id, account?.id, messageSearch]);
+  async function navigateSearch(messageId:string){
+    searchNavigation.current?.abort();
+    const controller = new AbortController(); searchNavigation.current = controller;
     followBottom.current=false;scrollIntent.current=0;setSearchActiveId(messageId);
-    const element=scroll.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
-    element?.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});
+    olderAnchor.current=null;
+    setInlineError('');
+    try {
+      const existing=scroll.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+      if (!existing && !demoMode && live.store) {
+        const id = Number(messageId.replace(/^message-/, ''));
+        if (!Number.isSafeInteger(id) || id <= 0) return;
+        setSearchNavigating(true);
+        if (!await live.store.openMessageContext(chat.id, id, controller.signal)) return;
+      }
+      requestAnimationFrame(() => {
+        if (controller.signal.aborted) return;
+        scroll.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`)
+          ?.scrollIntoView({behavior:'instant',block:'center'});
+      });
+    } catch (error) { if (!controller.signal.aborted) setInlineError(error instanceof ApiError && error.status === 404 ? 'Сообщение удалено или больше недоступно.' : friendlyError(error)); }
+    finally { if (!controller.signal.aborted) setSearchNavigating(false); }
   }
   function closeSearch(){setMessageSearch(null);setSearchActiveId(null);}
   function openChapterHistory(boundary: ChapterBoundary, trigger: HTMLButtonElement) {
@@ -582,6 +654,9 @@ export default function App() {
     });
   }
   function jumpToMessage(messageId: string) {
+    if (!demoMode && !scroll.current?.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`)) {
+      void navigateSearch(messageId); return;
+    }
     setMessageSearch(null);
     followBottom.current = false;
     scrollIntent.current = 0;
@@ -643,22 +718,8 @@ export default function App() {
     }
   }
   async function jumpToPin(message: Message) {
-    const store = live.store;
-    const key = chat.id, revision = viewRevision.current;
-    const stillOpen = () => activeChatRef.current === key && viewRevision.current === revision;
-    if (!demoMode && store && message.serverId) {
-      followBottom.current = false;
-      while (stillOpen()) {
-        const snapshot = store.getSnapshot();
-        const loaded = snapshot.state.messages.filter(item => item.chatId === key);
-        if (loaded.some(item => item.id === message.id) || !snapshot.history[key]?.hasOlder || snapshot.history[key]?.loading) break;
-        const oldest = loaded.reduce((id, item) => Math.min(id, item.serverId ?? Infinity), Infinity);
-        if (oldest <= message.serverId) break;
-        await store.loadOlder(key);
-        if (store.getSnapshot().state.messages === snapshot.state.messages || store.getSnapshot().history[key]?.error) break;
-      }
-    }
-    if (stillOpen()) jumpToMessage(message.id);
+    if (!demoMode && live.store && message.serverId) { await navigateSearch(message.id); return; }
+    jumpToMessage(message.id);
   }
   async function attachFiles(files: File[]) {
     if (!requireDemo()) return;
@@ -811,7 +872,7 @@ export default function App() {
       {wide && !panel && <ChatListDivider width={sidebarWidth} maximum={maximumChatListWidth} onResize={resizeChatList} />}
       {!chat.id ? <section className="conversation live-empty"><Brand /><p>{live.loading ? 'Загружаем твои разговоры…' : 'С кем начнётся твоя история?'}</p><button className="secondary glass" onClick={() => setModal('new-chat')}>Начать разговор</button></section> : <section ref={conversation} className={`conversation ${selectedIds.length?'is-selecting':''} ${contactOpen?'contact-is-open':''}`} aria-label={`Переписка: ${chat.name}`}>
         <div className="chat-surface" inert={contactVisible}><header className="conversation-header"><IconButton label="Назад к чатам" className="mobile-back back-button" onClick={() => { setMobileChat(false); setPanel(null); }}><ArrowLeft /></IconButton><button ref={contactButton} className="contact-button plain glass" disabled={recordingActive} onClick={openContact} aria-label={`Открыть профиль: ${chat.name}`}><span className="avatar">{chat.initial}</span><span><strong>{chat.name}</strong><span className="status">{chat.serverId ? chat.username : chat.online ? <><i />В сети</> : 'был(а) недавно'}</span></span></button><div className="header-actions glass"><IconButton label="Позвонить" onClick={() => setModal('calls')}><Phone /></IconButton><IconButton label="Поиск в переписке" onClick={() => setMessageSearch(value => value === null ? '' : null)}><Search /></IconButton><div className="menu-wrap"><IconButton label="Меню разговора" onClick={() => setMenuOpen(value => !value)}><MoreHorizontal /></IconButton>{menuOpen && <><button className="menu-scrim" aria-label="Закрыть меню" onClick={() => setMenuOpen(false)} /><div className="dropdown glass"><button onClick={()=>{setMessageSearch('');setMenuOpen(false);}}><Search/>Поиск в переписке</button><button onClick={() => { setPanel('moments'); setMenuOpen(false); }}><Bookmark />Сохранённые моменты</button><button onClick={() => { setPanel('questions'); setMenuOpen(false); }}><Clock3 />Вопрос на будущее</button><button onClick={() => { setPanel('chapters'); setMenuOpen(false); }}><ArrowUpRight />Главы</button>{!demoMode && <><button onClick={() => { setPanel('archive'); setMenuOpen(false); }}><Archive />Архив истории</button>{recordArchiveAction('chat', chat.serverId!, archivedChatIds.has(chat.serverId!))}</>}</div></>}</div></div>{selectedIds.length>0&&<IconButton label="Завершить выбор сообщений" className="selection-done" onClick={()=>setSelectedIds([])}><Check/></IconButton>}</header>
-        {messageSearch !== null && <><ConversationSearch query={messageSearch} onQuery={setMessageSearch} messages={messages} chat={chat} ownName={name} ownAvatar={avatar} onNavigate={navigateSearch} onClose={closeSearch}/>{!demoMode && <span className="search-scope-label">Поиск по загруженным сообщениям</span>}</>}
+        {messageSearch !== null && <><ConversationSearch key={`${account.id}:${chat.id}`} query={messageSearch} onQuery={setMessageSearch} messages={messages} chat={chat} ownName={name} ownAvatar={avatar} onNavigate={id=>{void navigateSearch(id);}} onClose={closeSearch} store={demoMode?null:live.store} ownId={account.id} onExpired={clearUser}/>{!demoMode && <span className="search-scope-label" role={searchNavigating?'status':undefined}>{searchNavigating?'Загружаем участок переписки…':'Поиск по всей переписке'}</span>}</>}
 
         {pinned.length > 0 && <div className="pinned-bar glass">
           <button type="button" className="pinned-preview" onClick={() => { void jumpToPin(pinned[0]); }}>
@@ -824,7 +885,10 @@ export default function App() {
           <IconButton label="Открепить последнее сообщение" disabled={!demoMode && live.pinBusy[chat.id]} onClick={() => { void changePin(pinned[0], false); }}><X size={16} /></IconButton>
         </div>}
         <div className={`messages-scroll ${!demoMode && !readEntry.ready ? 'preparing-entry' : ''}`} ref={scroll}><div className="messages-inner">
-          {!demoMode && (history?.hasOlder || history?.error) && <button className="load-history glass" disabled={history.loading} onClick={() => { void loadOlder(); }}>{history.loading ? 'Загружаем…' : history.error ? 'Повторить загрузку истории' : 'Более ранние сообщения'}</button>}
+          {!demoMode && <div ref={historyTop} className="history-load-boundary">
+            {history?.loading && messages.length > 0 && <span role="status">Загружаем сообщения…</span>}
+            {history?.error && <button className="load-history glass" disabled={history.loading} onClick={() => { void loadOlder(); }}>Повторить загрузку истории</button>}
+          </div>}
           {!demoMode && history?.error && <p className="history-error" role="alert">{history.error}</p>}
           {showFirstChapter && <ChapterDivider title="Первое знакомство" />}
           {demoMode && <div className="date-separator"><span>Сегодня</span></div>}
@@ -838,10 +902,15 @@ export default function App() {
             {message.kind === 'chapter' ? <ChapterDivider title={message.text} /> : <MessageBubble message={message} pinned={pinnedIds.has(message.id)} quote={original ? quoteFor(original) : undefined} selected={selectedIds.includes(message.id)} selecting={selectedIds.length > 0} active={messageMenu?.message.id === message.id || highlightId === message.id} searchQuery={messageSearch||''} searchActive={searchActiveId===message.id} onMenu={setMessageMenu} onSelect={toggleSelected} onJump={jumpToMessage} />}
             </Fragment>];
           }).concat(messages.length ? renderTimelineMarkers(null) : [])}
+          {!demoMode && history?.range && <div ref={historyBottom} className="history-load-boundary history-load-newer">
+            {history.loadingNewer && <span role="status">Загружаем следующие сообщения…</span>}
+            {history.newerError && <div role="alert"><p>{history.newerError}</p><button className="load-history glass" onClick={()=>{void live.store?.loadNewer(chat.id);}}>Повторить загрузку следующих сообщений</button></div>}
+          </div>}
         </div></div>
-        <ScrollToBottom key={`${account.id}:${chat.id}:${demoMode}`} scroll={scroll} enabled={(wide || mobileChat) && (demoMode || readEntry.ready) && !recordingActive} onActivate={() => {
+        <ScrollToBottom key={`${account.id}:${chat.id}:${demoMode}`} scroll={scroll} enabled={(wide || mobileChat) && (demoMode || readEntry.ready) && !recordingActive} forceVisible={!!history?.range && !!history.hasNewer} onActivate={() => {
           followBottom.current = true;
           scrollIntent.current = 0;
+          if (history?.range) void live.store?.returnToLatest(chat.id).catch(error=>setInlineError(friendlyError(error)));
         }} />
         <div ref={composerArea} className={`composer-area ${recordingActive?'is-recording':''}`}>
           {selectedIds.length>0?<div className="selection-dock" aria-label="Действия с выбранными сообщениями"><IconButton label="Удалить выбранные сообщения" disabled={deleting} className="glass round" onClick={()=>requestDelete([...selectedIds])}><Trash2/></IconButton><span className="selection-count">Выбрано: {selectedIds.length}{!demoMode && selectedIds.length === 100 ? ' · максимум 100' : ''}</span><div className="selection-dock-actions"><IconButton label="Копировать выбранные сообщения" onClick={()=>void copyMessages(selectedIds)}><Copy/></IconButton><IconButton label="Сохранить выбранные сообщения в момент" onClick={()=>openMoment([...selectedIds])}><Bookmark/></IconButton><IconButton label="Переслать выбранные сообщения" disabled={forwarding} className="glass round" onClick={()=>openForward([...selectedIds])}><Forward/></IconButton></div></div>:<>

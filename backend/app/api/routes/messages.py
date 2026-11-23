@@ -1,8 +1,9 @@
-from fastapi import APIRouter
+from typing import Annotated
+from fastapi import APIRouter,Query
 from backend.app.api.dependencies import CurrentUser
 from backend.app.schemas.messages import MessageResponse, CreateMessageRequest,EditMessageRequest,DeleteMessagesRequest,DeleteMessagesResponse,ForwardMessagesRequest
 from backend.app.services.chats import get_chat_for_user
-from backend.app.services.messages import create_message,get_chat_messages,edit_message,delete_messages,forward_messages
+from backend.app.services.messages import create_message,get_chat_messages,edit_message,delete_messages,forward_messages,search_chat_messages,get_message_context
 from backend.database.session import SessionDep
 from backend.app.core.connections import connection_manager
 from anyio import from_thread
@@ -39,8 +40,8 @@ def send_message(session:SessionDep,user:CurrentUser,chat_id:int,data:CreateMess
     return new_message
 
 @message_router.get('',response_model=list[MessageResponse])
-def get_messages(session:SessionDep,chat_id:int,user:CurrentUser,before_id:int|None=None):
-    messages=get_chat_messages(session=session,user=user,before_id=before_id,chat_id=chat_id)
+def get_messages(session:SessionDep,chat_id:int,user:CurrentUser,before_id: Annotated[int | None, Query(gt=0)] = None,after_id: Annotated[int | None, Query(gt=0)] = None):
+    messages=get_chat_messages(session=session,user=user,before_id=before_id,chat_id=chat_id,after_id=after_id)
     return messages
 
 @message_router.patch('/{message_id}',response_model=MessageResponse)
@@ -121,5 +122,10 @@ def forward_endpoint_messages(session:SessionDep,user:CurrentUser,chat_id:int,da
         )
 
     return list_of_copy_message
+@message_router.get('/search',response_model=list[MessageResponse])
+def search_endpoint_chat_messages(session:SessionDep,user:CurrentUser,chat_id:int,q:str,before_id:Annotated[int|None,Query(gt=0)]=None):
+    return search_chat_messages(session, q, user, chat_id, before_id)
 
-
+@message_router.get('/{message_id}/context',response_model=list[MessageResponse])
+def get_endpoint_message_context(session:SessionDep,user:CurrentUser,chat_id:int,message_id:int):
+    return get_message_context(session, user, chat_id, message_id)

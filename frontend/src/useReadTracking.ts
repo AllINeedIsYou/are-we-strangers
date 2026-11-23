@@ -28,7 +28,7 @@ export default function useReadTracking({ viewKey, chatId, store, messages, hist
       if (revision !== generation.current) return;
       preparing.current = false;
       if (store.getSnapshot().history[chatId]?.error) return;
-      const boundary = store.getSnapshot().state.messages.find(message => message.chatId === chatId && !message.own && !message.read)?.id || null;
+      const boundary = store.messagesForChat(chatId).find(message => !message.own && !message.read)?.id || null;
       setEntry({ key: viewKey, ready: true, boundary });
     });
   }, [viewKey, chatId, store, history?.loading, history?.error, entry]);
@@ -36,6 +36,12 @@ export default function useReadTracking({ viewKey, chatId, store, messages, hist
   useLayoutEffect(() => {
     const node = scroll.current;
     if (!ready || !node) return;
+    const range = store?.getSnapshot().history[chatId]?.range;
+    if (range) {
+      node.querySelector<HTMLElement>(`[data-message-id="message-${range.target}"]`)?.scrollIntoView({ block: 'center', behavior: 'instant' });
+      followBottom.current = false;
+      return;
+    }
     const target = entry.boundary && node.querySelector<HTMLElement>('[data-unread-boundary]');
     if (target) {
       const header = conversation.current?.querySelector('.conversation-header')?.getBoundingClientRect();
@@ -43,7 +49,7 @@ export default function useReadTracking({ viewKey, chatId, store, messages, hist
       node.scrollTop += target.getBoundingClientRect().top - visibleTop - 12;
       followBottom.current = false;
     } else { node.scrollTop = node.scrollHeight; followBottom.current = true; }
-  }, [ready, entry.boundary, scroll, conversation, followBottom]);
+  }, [ready, entry.boundary, scroll, conversation, followBottom, store, chatId]);
   useEffect(() => {
     const node = scroll.current, scene = conversation.current;
     if (!ready || !store || !node || !scene || obscured) return;

@@ -1,10 +1,11 @@
 import { useEffect, useState, type RefObject } from 'react';
 import { ChevronDown } from 'lucide-react';
 
-export default function ScrollToBottom({ scroll, enabled, onActivate }: {
+export default function ScrollToBottom({ scroll, enabled, onActivate, forceVisible = false }: {
   scroll: RefObject<HTMLDivElement | null>;
   enabled: boolean;
   onActivate: () => void;
+  forceVisible?: boolean;
 }) {
   const [visible, setVisible] = useState(false);
 
@@ -29,7 +30,7 @@ export default function ScrollToBottom({ scroll, enabled, onActivate }: {
     };
   }, [scroll, enabled]);
 
-  if (!enabled || !visible) return null;
+  if (!enabled || (!visible && !forceVisible)) return null;
   return <button className="scroll-to-bottom icon-button glass" type="button" aria-label="К последним сообщениям" onClick={() => {
     onActivate();
     const node = scroll.current;

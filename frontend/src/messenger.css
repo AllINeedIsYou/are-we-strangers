@@ -24,6 +24,8 @@
 .new-user-search{display:flex;align-items:center;gap:10px;border-bottom:1px solid #ffffff26;padding:8px 0;margin-bottom:10px;color:#aaa}
 .new-user-search input{width:100%;min-width:0;background:none;border:0;padding:8px 0;color:#eee;font-size:16px}
 .load-history{align-self:center;border-radius:24px;padding:8px 16px;margin:6px 0 14px;font-size:12px;color:#bbb;flex-shrink:0}
+.history-load-boundary{display:flex;align-items:center;justify-content:center;align-self:stretch;flex-shrink:0;min-height:28px;margin-bottom:8px;color:#aaa;font-size:12px}
+.history-load-boundary .load-history{margin:0}
 .history-error{font-size:12px;color:#da9eab;text-align:center;margin-bottom:10px}
 .conversation-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
 .conversation-empty>.star{width:30px;height:54px;margin:0;color:#f7f6f4;filter:none;animation:none}

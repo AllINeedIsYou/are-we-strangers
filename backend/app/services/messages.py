@@ -33,15 +33,24 @@ def create_message(session:Session,user:Users,chat_id:int,data:CreateMessageRequ
 
     return new_message
 
-def get_chat_messages(session:Session,user:Users,chat_id:int,limit:int=50,before_id: int | None = None):
+def get_chat_messages(session:Session,user:Users,chat_id:int,limit:int=50,before_id: int | None = None,after_id: int | None = None):
     chat = get_chat_for_user(session, user, chat_id)
     messages=session.query(Messages).filter(Messages.chat_id==chat.id,message_visible_to(user.id))
+    if (before_id is not None) and (after_id is not None):
+        raise HTTPException(status_code=422)
+
+    if (before_id is None) and (after_id is None):
+        messages=messages.order_by(Messages.id.desc()).limit(limit).all()
+        messages.reverse()
+
     if before_id is not None:
-        messages=messages.filter(Messages.id<before_id)
+        messages=messages.filter(Messages.id<before_id).order_by(Messages.id.desc()).limit(limit).all()
+        messages.reverse()
 
-    messages=messages.order_by(Messages.id.desc()).limit(limit).all()
+    if after_id is not None:
+        messages = messages.filter(Messages.id > after_id).order_by(Messages.id.asc()).limit(limit).all()
 
-    messages.reverse()
+
 
     return messages
 
@@ -203,3 +212,27 @@ def forward_messages(session:Session,user:Users,chat_id:int,source_chat_id:int,m
         session.rollback()
         raise
     return list_of_copy_message
+
+def search_chat_messages(session:Session,q:str,user:Users,chat_id:int,before_id:int|None=None):
+    chat=get_chat_for_user(session, user, chat_id)
+    q=q.strip()
+    if (not q) or len(q)>256:
+        raise HTTPException(status_code=422)
+    messages=session.query(Messages).filter(Messages.chat_id==chat.id,message_visible_to(user.id),Messages.text.icontains(q,autoescape=True))
+    if before_id is not None:
+        messages=messages.filter(Messages.id<before_id)
+    messages=messages.order_by(Messages.id.desc()).limit(50).all()
+    return messages
+
+def get_message_context(session:Session,user:Users,chat_id:int,message_id:int):
+    chat=get_chat_for_user(session, user, chat_id)
+    message=session.query(Messages).filter(Messages.id==message_id,Messages.chat_id==chat.id,message_visible_to(user.id)).first()
+    if message is None:
+        raise HTTPException(status_code=404)
+
+    messages_before=session.query(Messages).filter(Messages.chat_id==chat.id,Messages.id<message.id,message_visible_to(user.id)).order_by(Messages.id.desc()).limit(50).all()
+    messages_after=session.query(Messages).filter(Messages.chat_id==chat.id,Messages.id>message.id,message_visible_to(user.id)).order_by(Messages.id.asc()).limit(50).all()
+    messages_before.reverse()
+
+    response=messages_before+[message]+messages_after
+    return response

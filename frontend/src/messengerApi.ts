@@ -160,6 +160,23 @@ export const messengerApi = {
     if (messages.some(message => message.chat_id !== chatId)) throw new ApiError(0, 'Сервер вернул сообщения другого чата');
     return messages;
   },
+  messagesAfter: async (chatId: number, afterId: number, signal?: AbortSignal) => {
+    const rows = list(await apiRequest(`/api/chats/${chatId}/messages?after_id=${afterId}`, undefined, { signal }), isServerMessage);
+    if (rows.length > 50 || rows.some((row, index) => row.chat_id !== chatId || row.id <= afterId || (index > 0 && row.id <= rows[index - 1].id))) throw new ApiError(0, 'Некорректная страница переписки');
+    return rows;
+  },
+  searchMessages: async (chatId: number, q: string, beforeId?: number, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ q: q.trim() });
+    if (beforeId !== undefined) params.set('before_id', String(beforeId));
+    const rows = list(await apiRequest(`/api/chats/${chatId}/messages/search?${params}`, undefined, { signal }), isServerMessage);
+    if (rows.length > 50 || rows.some((row, index) => row.chat_id !== chatId || (beforeId !== undefined && row.id >= beforeId) || (index > 0 && row.id >= rows[index - 1].id))) throw new ApiError(0, 'Некорректные результаты поиска');
+    return rows;
+  },
+  messageContext: async (chatId: number, messageId: number, signal?: AbortSignal) => {
+    const rows = list(await apiRequest(`/api/chats/${chatId}/messages/${messageId}/context`, undefined, { signal }), isServerMessage);
+    if (rows.length > 101 || !rows.some(row => row.id === messageId) || rows.some((row, index) => row.chat_id !== chatId || (index > 0 && row.id <= rows[index - 1].id))) throw new ApiError(0, 'Не удалось прочитать участок переписки');
+    return rows;
+  },
   pins: async (chatId: number, signal?: AbortSignal) => {
     const messages = list(await apiRequest(`/api/chats/${chatId}/pins`, undefined, { signal }), isServerMessage);
     if (messages.some(message => message.chat_id !== chatId)) throw new ApiError(0, 'Сервер вернул закрепы другого чата');
