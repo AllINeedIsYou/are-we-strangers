@@ -1,6 +1,5 @@
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Response, Cookie,BackgroundTasks
-
 from backend.app.core.connections import connection_manager
 from backend.app.schemas.auth import RegisterRequest, RegisterResponse, VerifyPhoneRequest, PhoneVerificationResponse, \
     ResendPhoneVerificationRequest, LoginRequest, VerifyEmailRequest, EmailVerificationResponse

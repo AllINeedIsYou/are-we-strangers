@@ -6,6 +6,10 @@
 .account-security-group>summary>svg{flex:none;width:20px;height:20px;stroke-width:1.5;color:#aaa}
 .account-security-group>summary>span{min-width:0;font-size:14px;overflow-wrap:anywhere}
 .account-security-group small{display:block;margin-top:6px;color:#929197;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.account-security-group .account-email{display:flex;align-items:center;gap:6px}
+.account-email>span:first-child{min-width:0}
+.email-unverified-mark{display:inline-flex;flex:none;color:#ec496d}
+.email-unverified-mark svg{width:13px;height:13px;stroke-width:1.8}
 .account-security-group>summary>svg:last-child{margin-left:auto;width:17px;height:17px;transition:transform .2s ease}
 .account-security-group[open]>summary>svg:last-child{transform:rotate(90deg)}
 .account-security-actions{padding:0 0 15px 34px}
@@ -17,5 +21,18 @@
 .security-action:disabled{cursor:default;color:#a39da1}
 .security-notice,.account-security-actions .auth-description,.account-security-actions .auth-error{font-size:12px;line-height:1.6;margin:8px 12px 0;overflow-wrap:anywhere}
 .security-notice{color:#a8a1a6}
+.email-change-form{padding:10px 12px 16px;min-width:0}
+.email-change-form .stack-form{gap:14px}
+.email-change-form .auth-description,.email-change-form .auth-error,.account-security-actions .auth-success{margin:0;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.email-change-form input{min-width:0;color-scheme:dark;background:#100d10;border:1px solid #9d1839;border-radius:13px}
+.email-change-form input:focus{outline:none;border-color:#ec496d;box-shadow:0 0 0 2px #ec496d20}
+.email-change-form .primary,.email-change-telegram{min-height:43px;padding:11px 14px;border-radius:999px;font-size:13px}
+.email-change-telegram{display:flex;align-items:center;justify-content:center;gap:8px;text-align:center}
+.email-change-target{margin:0;color:#929197;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.email-change-target strong{display:block;margin-top:3px;color:#eee;font-size:14px;font-weight:500}
+.email-change-options{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 14px}
+.email-change-options button{padding:5px 0;color:#b5a9b0;font-size:11px;text-align:left}
+.email-change-options button:disabled{opacity:.5;cursor:default}
+.account-security-actions>.auth-success{margin:8px 12px}
 @keyframes security-reveal{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.account-security-group[open] .account-security-actions{animation:none}.account-security-group>summary>svg:last-child{transition:none}}

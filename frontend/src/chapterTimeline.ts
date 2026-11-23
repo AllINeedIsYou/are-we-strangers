@@ -3,6 +3,22 @@ import type { ServerChapter } from './messengerApi.ts';
 
 export type ChapterBoundary = { id: string; title: string; startedAt: string };
 
+export function chapterWindow(boundaries: ChapterBoundary[], chapterId: string): { start: number; end: number } | null {
+  const index = boundaries.findIndex(boundary => boundary.id === chapterId);
+  if (index < 0) return null;
+  const start = Date.parse(boundaries[index].startedAt);
+  const end = index + 1 < boundaries.length ? Date.parse(boundaries[index + 1].startedAt) : Infinity;
+  return Number.isFinite(start) && (Number.isFinite(end) || end === Infinity) && end >= start ? { start, end } : null;
+}
+
+export function recordsInChapter<T>(records: T[], getCreated: (record: T) => string | undefined, window: { start: number; end: number } | null): T[] {
+  if (!window) return [];
+  return records.filter(record => {
+    const created = Date.parse(getCreated(record) ?? '');
+    return Number.isFinite(created) && created >= window.start && created < window.end;
+  });
+}
+
 export function chapterBoundaries(chat: Chat, chapters: ServerChapter[]): ChapterBoundary[] {
   const boundaries = chapters.flatMap(chapter => chapter.status === 'accepted' && chapter.started_at
     ? [{ id: `chapter-${chapter.id}`, title: chapter.title, startedAt: chapter.started_at }] : []);

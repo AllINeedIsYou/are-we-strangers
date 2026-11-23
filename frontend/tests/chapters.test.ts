@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ApiError } from '../src/authApi.ts';
 import { messengerApi, type ServerChapter } from '../src/messengerApi.ts';
 import { MessengerStore } from '../src/messengerStore.ts';
-import { chapterBoundaries, completedChapterMinutes, placeChapterBoundaries } from '../src/chapterTimeline.ts';
+import { chapterBoundaries, chapterWindow, completedChapterMinutes, placeChapterBoundaries, recordsInChapter } from '../src/chapterTimeline.ts';
 import type { Chat, Message } from '../src/domain.ts';
 
 const created = '2026-11-01T12:00:00Z';
@@ -133,4 +133,35 @@ test('a chapter ends at the next accepted start, excluding proposals and rejecti
   assert.equal(durations.has('chapter-11'), false);
   assert.equal(durations.has('chapter-12'), false);
   assert.equal(durations.size, 2);
+});
+
+test('chapter history includes its start and excludes the next chapter start for both initial and ongoing chapters', () => {
+  const chat: Chat = { id: 'server-7', createdAt: created, name: 'Мира', initial: 'М', online: false, unread: 0 };
+  const starts = chapterBoundaries(chat, [chapter, { ...chapter, id: 12, status: 'rejected' }, acceptedChapter]);
+  const rows = [
+    { id: 'before-chat', created: '2026-10-31T23:59:59Z' },
+    { id: 'initial-start', created },
+    { id: 'initial-last', created: '2026-11-04T11:59:59Z' },
+    { id: 'next-start', created: accepted },
+    { id: 'latest', created: '2026-11-20T00:00:00Z' },
+    { id: 'unknown-date', created: undefined },
+  ];
+  assert.deepEqual(recordsInChapter(rows, row => row.created, chapterWindow(starts, 'initial-server-7')).map(row => row.id), ['initial-start', 'initial-last']);
+  assert.deepEqual(recordsInChapter(rows, row => row.created, chapterWindow(starts, 'chapter-10')).map(row => row.id), ['next-start', 'latest']);
+  assert.deepEqual(recordsInChapter(rows, row => row.created, chapterWindow(starts, 'chapter-12')), []);
+});
+
+test('chapter history uses record creation time, independent of future opening, archived state and source message time', () => {
+  const starts = [
+    { id: 'first', title: 'Первая', startedAt: '2026-11-01T00:00:00Z' },
+    { id: 'second', title: 'Вторая', startedAt: '2026-11-05T00:00:00Z' },
+  ];
+  const question = { created_at: '2026-11-02T00:00:00Z', opens_at: '2026-12-01T00:00:00Z', archived: true };
+  assert.deepEqual(recordsInChapter([question], row => row.created_at, chapterWindow(starts, 'first')), [question]);
+  assert.deepEqual(recordsInChapter([question], row => row.created_at, chapterWindow(starts, 'second')), []);
+  const moment = { createdAt: '2026-11-06T00:00:00Z', messageCreatedAt: '2026-11-02T00:00:00Z' };
+  assert.deepEqual(recordsInChapter([moment], row => row.createdAt, chapterWindow(starts, 'second')), [moment]);
+  assert.equal(chapterWindow([{ id: 'bad', title: 'Ошибка', startedAt: 'invalid' }], 'bad'), null);
+  const simultaneous = [{ ...starts[0], startedAt: starts[1].startedAt }, starts[1]];
+  assert.deepEqual(recordsInChapter([moment], row => row.createdAt, chapterWindow(simultaneous, 'first')), []);
 });

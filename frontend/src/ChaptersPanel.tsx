@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type FormEvent } from 'react';
-import { ArrowUpRight, Check, Clock3, Plus, Search, X } from 'lucide-react';
+import { ArrowUpRight, BookOpen, Check, Clock3, Plus, Search, X } from 'lucide-react';
 import { friendlyError } from './authApi';
 import type { ChapterDecision, ServerChapter } from './messengerApi';
 import { completedChapterMinutes, type ChapterBoundary } from './chapterTimeline';
@@ -7,7 +7,7 @@ import DateSortButton, { sortByCreated, type DateOrder } from './DateSortButton'
 
 const formatDate = new Intl.DateTimeFormat('ru', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-export default function ChaptersPanel({ cards, boundaries, ownId, loading, error, onReload, onCreate, onDecide, onJump }: {
+export default function ChaptersPanel({ cards, boundaries, ownId, loading, error, onReload, onCreate, onDecide, onJump, onHistory }: {
   cards: ServerChapter[];
   boundaries: ChapterBoundary[];
   ownId: number;
@@ -17,6 +17,7 @@ export default function ChaptersPanel({ cards, boundaries, ownId, loading, error
   onCreate: (title: string) => Promise<boolean>;
   onDecide: (id: number, status: ChapterDecision) => Promise<boolean>;
   onJump: (boundary: ChapterBoundary) => Promise<boolean>;
+  onHistory: (boundary: ChapterBoundary, trigger: HTMLButtonElement) => void;
 }) {
   const [title, setTitle] = useState('');
   const [expanded, setExpanded] = useState(false);
@@ -77,7 +78,10 @@ export default function ChaptersPanel({ cards, boundaries, ownId, loading, error
       <time className="eyebrow" dateTime={initial.startedAt}>{formatDate.format(new Date(initial.startedAt))}</time>
       {initialDuration !== undefined && <strong className="chapter-duration">{initialDuration} минут вместе</strong>}
     </div>
-    <button type="button" className="chapter-jump" disabled={pending !== null} onClick={() => void perform('initial', () => onJump(initial))}>{pending === 'initial' ? 'Загружаем начало…' : 'Перейти к началу главы'}<ArrowUpRight size={16} /></button>
+    <div className="chapter-card-actions">
+      <button type="button" className="chapter-jump" disabled={pending !== null} onClick={() => void perform('initial', () => onJump(initial))}>{pending === 'initial' ? 'Загружаем начало…' : 'Перейти к началу главы'}<ArrowUpRight size={16} /></button>
+      <button type="button" className="chapter-jump" disabled={pending !== null} onClick={event => onHistory(initial, event.currentTarget)}>История главы<BookOpen size={16} /></button>
+    </div>
     {failure?.at === 'initial' && <p className="inline-error" role="alert">{failure.text}</p>}
   </article>;
 
@@ -133,7 +137,10 @@ export default function ChaptersPanel({ cards, boundaries, ownId, loading, error
           </div>
           {pending === card.id && <p className="muted" role="status">Сохраняем решение…</p>}
         </>)}
-        {card.status === 'accepted' && card.started_at && <button type="button" className="chapter-jump" disabled={pending !== null} onClick={() => void perform(card.id, () => onJump({ id: `chapter-${card.id}`, title: card.title, startedAt: card.started_at! }))}>{pending === card.id ? 'Загружаем начало…' : 'Перейти к началу главы'}<ArrowUpRight size={16} /></button>}
+        {card.status === 'accepted' && card.started_at && <div className="chapter-card-actions">
+          <button type="button" className="chapter-jump" disabled={pending !== null} onClick={() => void perform(card.id, () => onJump({ id: `chapter-${card.id}`, title: card.title, startedAt: card.started_at! }))}>{pending === card.id ? 'Загружаем начало…' : 'Перейти к началу главы'}<ArrowUpRight size={16} /></button>
+          <button type="button" className="chapter-jump" disabled={pending !== null} onClick={event => onHistory({ id: `chapter-${card.id}`, title: card.title, startedAt: card.started_at! }, event.currentTarget)}>История главы<BookOpen size={16} /></button>
+        </div>}
         {failure?.at === card.id && <p className="inline-error" role="alert">{failure.text}</p>}
       </article>;
     })}

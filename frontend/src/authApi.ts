@@ -18,6 +18,7 @@ export type PhoneChallenge = {
   verification_expires_at: string;
   telegram_url: string;
 };
+export type EmailChangeChallenge = PhoneChallenge;
 export type Registration = { phone: string; email: string; name: string; username: string; password: string };
 export type RegistrationResult = PhoneChallenge & { user: Account };
 
@@ -31,7 +32,7 @@ export class ApiError extends Error {
 }
 
 const fieldNames: Record<string, string> = {
-  phone: 'Номер телефона', email: 'Почта', name: 'Имя', username: 'Юзернейм',
+  phone: 'Номер телефона', email: 'Почта', new_email: 'Новая почта', verification_token: 'Заявка', name: 'Имя', username: 'Юзернейм',
   password: 'Пароль', new_password: 'Новый пароль', login: 'Логин', code: 'Код', token: 'Ссылка', bio: 'О себе', birthday: 'Дата рождения',
 };
 
@@ -46,7 +47,7 @@ function errorMessage(payload: unknown, status: number): string {
       if (item?.type === 'string_too_short') return `${label}: слишком короткое значение`;
       if (item?.type === 'string_too_long') return `${label}: слишком длинное значение`;
       if (item?.type === 'string_pattern_mismatch') return `${label}: неверный формат`;
-      if (field === 'email') return 'Проверь адрес почты';
+      if (field === 'email' || field === 'new_email') return 'Проверь адрес почты';
       if (field === 'phone') return 'Проверь номер телефона, включая код страны +7';
       if (typeof item?.msg === 'string' && /[а-яё]/i.test(item.msg)) return `${label}: ${item.msg.replace(/^Value error, /, '')}`;
       return `${label}: проверь введённое значение`;
@@ -114,6 +115,20 @@ export const authApi = {
     return result;
   },
   resetPassword: (token: string, new_password: string, signal?: AbortSignal) => request<void>('/reset-password', { token, new_password }, { signal }),
+  requestEmailChange: async (new_email: string, signal?: AbortSignal): Promise<EmailChangeChallenge> => {
+    const challenge = await apiRequest<EmailChangeChallenge>('/api/user/me/email-change', { new_email: new_email.trim() }, { signal });
+    if (!challenge || typeof challenge.verification_token !== 'string' || !challenge.verification_token
+      || typeof challenge.verification_expires_at !== 'string' || !Number.isFinite(Date.parse(challenge.verification_expires_at))
+      || typeof challenge.telegram_url !== 'string' || !telegramLink(challenge.telegram_url)) {
+      throw new ApiError(0, 'Не удалось прочитать заявку. Попробуй создать новую ссылку');
+    }
+    return challenge;
+  },
+  confirmEmailChange: async (userId: number, verification_token: string, code: string, signal?: AbortSignal): Promise<Account> => {
+    const user = checkedAccount(await apiRequest<Account>('/api/user/me/email-change/confirm', { verification_token, code }, { signal }));
+    if (user.id !== userId) throw new ApiError(0, 'Сервер вернул данные другого аккаунта');
+    return user;
+  },
   updateProfile: async (userId: number, data: ProfileUpdate, signal?: AbortSignal): Promise<Account> => {
     const user = checkedAccount(await apiRequest<Account>('/api/user/me', data, { method: 'PATCH', signal }));
     if (user.id !== userId) throw new ApiError(0, 'Сервер вернул данные другого аккаунта');

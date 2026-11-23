@@ -8,3 +8,4 @@ from backend.app.models.moments import Moments,MessagesForMoments
 from backend.app.models.future_questions import FutureQuestion,FutureQuestionAnswer
 from backend.app.models.chapters import Chapters
 from backend.app.models.arhives import ArchivedChat,ArchivedFutureQuestion,ArchivedMoment
+from backend.app.models.email_change import EmailChanges

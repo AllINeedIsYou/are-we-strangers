@@ -124,3 +124,40 @@ test('password reset surfaces invalid links and rejects malformed email-request 
   t.mock.method(globalThis, 'fetch', async () => Response.json({ ok: true }));
   await assert.rejects(authApi.requestPasswordReset('alex@example.com'), /Не удалось прочитать ответ сервера/);
 });
+
+test('email change uses authenticated user routes, trims email and preserves leading zeros in code', async t => {
+  const challenge = { verification_token: 'email-token', verification_expires_at: '2026-12-01T01:00:00Z', telegram_url: 'https://t.me/test_bot?start=email_email-token' };
+  const calls: Array<{ url: string; body: unknown }> = [];
+  t.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
+    assert.equal(options.method, 'POST'); assert.equal(options.credentials, 'include');
+    calls.push({ url, body: JSON.parse(String(options.body)) });
+    return Response.json(url.endsWith('/confirm') ? { ...account, email: 'new@example.com' } : challenge);
+  });
+  assert.deepEqual(await authApi.requestEmailChange('  new@example.com  '), challenge);
+  assert.equal((await authApi.confirmEmailChange(account.id, 'email-token', '012345')).email, 'new@example.com');
+  assert.deepEqual(calls, [
+    { url: '/api/user/me/email-change', body: { new_email: 'new@example.com' } },
+    { url: '/api/user/me/email-change/confirm', body: { verification_token: 'email-token', code: '012345' } },
+  ]);
+});
+
+test('email change rejects malformed challenges and another account in a confirmation response', async t => {
+  const challenge = { verification_token: 'email-token', verification_expires_at: '2026-12-01T01:00:00Z', telegram_url: 'https://t.me/test_bot?start=email_email-token' };
+  for (const invalid of [{ ...challenge, verification_token: '' }, { ...challenge, verification_expires_at: 'invalid' }, { ...challenge, telegram_url: 'https://evil.example/bot' }, null]) {
+    t.mock.method(globalThis, 'fetch', async () => Response.json(invalid));
+    await assert.rejects(authApi.requestEmailChange('new@example.com'), /Не удалось прочитать заявку/);
+    t.mock.restoreAll();
+  }
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ ...account, id: 99 }));
+  await assert.rejects(authApi.confirmEmailChange(account.id, 'email-token', '012345'), /другого аккаунта/);
+});
+
+test('email change surfaces validation and conflict messages without submitted data', async t => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ detail: [
+    { loc: ['body', 'new_email'], type: 'value_error', msg: 'invalid email', input: 'PRIVATE EMAIL' },
+  ] }, { status: 422 }));
+  await assert.rejects(authApi.requestEmailChange('invalid'), error => error instanceof ApiError && error.message === 'Проверь адрес почты');
+  t.mock.restoreAll();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ detail: 'Почта занята' }, { status: 409 }));
+  await assert.rejects(authApi.confirmEmailChange(account.id, 'email-token', '012345'), error => error instanceof ApiError && error.status === 409 && error.message === 'Почта занята');
+});

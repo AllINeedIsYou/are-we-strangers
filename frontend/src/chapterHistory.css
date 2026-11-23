@@ -1,0 +1,16 @@
+.chapter-card-actions{display:flex;align-items:center;flex-wrap:wrap;gap:2px 24px;margin-top:10px}
+.chapter-card-actions .chapter-jump{margin-top:0;min-height:40px}
+.chapter-card-actions .chapter-jump svg{flex:none}
+.chapter-history-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.chapter-history-heading h3{margin:0;overflow-wrap:anywhere;min-width:0}
+.chapter-history-heading h3:focus{outline:none}
+.chapter-history-period{margin:10px 0 20px;color:#98929b;font-size:12px;line-height:1.6}
+.chapter-history-tabs{margin-bottom:22px}
+.chapter-history-entry{position:relative;margin-top:18px}
+.chapter-history-entry .history-card{margin-top:0}
+.chapter-history-entry>.chapter-history-archived{margin:0 0 8px 3px}
+.chapter-history-archived{display:inline-flex;align-items:center;gap:5px;color:#a59aa2;font-size:11px}
+.chapter-history-record-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px}
+.chapter-history .history-card .muted{display:flex;align-items:center;gap:7px;line-height:1.6}
+.chapter-history .history-card .muted svg{flex:none}
+@media(max-width:480px){.chapter-card-actions{gap:0 18px}.chapter-card-actions .chapter-jump{font-size:12px}.chapter-history-period{font-size:11px}}

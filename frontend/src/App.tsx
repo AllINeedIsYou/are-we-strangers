@@ -13,6 +13,7 @@ import FutureQuestionAnswerForm from './FutureQuestionAnswerForm';
 import { dateValue } from './QuestionDatePicker';
 import ContactProfile from './ContactProfile';
 import ChaptersPanel from './ChaptersPanel';
+import ChapterHistory from './ChapterHistory';
 import ChapterProposalNotice from './ChapterProposalNotice';
 import ScrollToBottom from './ScrollToBottom';
 import useArchive from './useArchive';
@@ -119,6 +120,9 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState<ModalName>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
+  const [chapterHistoryId, setChapterHistoryId] = useState<string | null>(null);
+  const chapterHistoryTrigger = useRef<HTMLButtonElement | null>(null);
+  const chapterListScroll = useRef(0);
   const [chatArchiveOpen, setChatArchiveOpen] = useState(false);
   const [answeringQuestion, setAnsweringQuestion] = useState<{ chatId: string; id: number } | null>(null);
   const [contactOpen,setContactOpen]=useState(false);
@@ -200,6 +204,7 @@ export default function App() {
   const chaptersStatus = live.chapters[chat.id];
   const chapterCards = chaptersStatus?.cards ?? [];
   const chapterStarts = demoMode ? [] : chapterBoundaries(chat, chapterCards);
+  const historyChapter = panel === 'chapters' ? chapterStarts.find(boundary => boundary.id === chapterHistoryId) : undefined;
   const futureQuestions = live.questions[chat.id];
   const futureQuestionCards = futureQuestions?.cards ?? [];
   const demoQuestions = demoMode && panel === 'questions' ? state.questions.filter(item => item.chatId === chat.id) : [];
@@ -314,6 +319,17 @@ export default function App() {
     if ((panel === 'moments' || panel === 'archive') && !demoMode && chat.serverId) void live.store?.loadMoments(chat.id);
     if (panel === 'archive' && !demoMode && chat.serverId) void live.store?.loadFutureQuestions(chat.id);
   }, [panel, demoMode, chat.id, chat.serverId, live.store]);
+  useEffect(() => { setChapterHistoryId(null); chapterListScroll.current = 0; }, [chat.id, account?.id, panel]);
+  useEffect(() => {
+    if (!chapterHistoryId || panel !== 'chapters' || demoMode || !chat.serverId) return;
+    void live.store?.loadMoments(chat.id);
+    void live.store?.loadFutureQuestions(chat.id);
+  }, [chapterHistoryId, panel, demoMode, chat.id, chat.serverId, live.store]);
+  useLayoutEffect(() => {
+    if (panel !== 'chapters') return;
+    const content = historyDialog.current?.querySelector<HTMLElement>('.panel-content');
+    if (content) content.scrollTop = chapterHistoryId ? 0 : chapterListScroll.current;
+  }, [chapterHistoryId, panel]);
   useEffect(() => {
     if (stage === 'chat' && !demoMode && chat.serverId && (wide || mobileChat)) void live.store?.loadFutureQuestions(chat.id);
   }, [stage, demoMode, chat.id, chat.serverId, wide, mobileChat, live.store]);
@@ -498,6 +514,15 @@ export default function App() {
     element?.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});
   }
   function closeSearch(){setMessageSearch(null);setSearchActiveId(null);}
+  function openChapterHistory(boundary: ChapterBoundary, trigger: HTMLButtonElement) {
+    chapterHistoryTrigger.current = trigger;
+    chapterListScroll.current = historyDialog.current?.querySelector('.panel-content')?.scrollTop ?? 0;
+    setChapterHistoryId(boundary.id);
+  }
+  function closeChapterHistory() {
+    setChapterHistoryId(null);
+    requestAnimationFrame(() => { if (chapterHistoryTrigger.current?.isConnected) chapterHistoryTrigger.current.focus({ preventScroll: true }); });
+  }
   async function jumpToChapter(boundary: ChapterBoundary) {
     if (!live.store || !account) return false;
     chapterNavigation.current?.abort();
@@ -744,9 +769,9 @@ export default function App() {
     return <ArchiveAction archived={archived} busy={archive.busy[archiveKey(kind, itemId)]} disabled={!archive.data}
       onChange={transition => live.store!.archives.set(chat.serverId!, kind, itemId, !archived, transition)} />;
   }
-  function renderMoment(moment: Moment, archived: boolean) {
+  function renderMoment(moment: Moment, archived: boolean, showArchiveAction = true) {
     return <MomentCard key={moment.id} moment={moment} name={name} partner={chat.name} ownId={account?.id ?? 0} demo={demoMode}
-      archiveAction={moment.serverId ? recordArchiveAction('moment', moment.serverId, archived) : undefined}
+      archiveAction={showArchiveAction && moment.serverId ? recordArchiveAction('moment', moment.serverId, archived) : undefined}
       onReply={response => {
         if (demoMode) setState(previous => ({ ...previous, moments: previous.moments.map(item => item.id === moment.id ? { ...item, response } : item) }));
         else if (moment.serverId) return live.store?.replyToMoment(chat.id, moment.serverId, response);
@@ -838,7 +863,11 @@ export default function App() {
         </div></div>
         {contactVisible&&<ContactProfile key={chat.id} open={contactOpen} chat={chat} state={state} serverChapterCount={demoMode ? undefined : chapterCards.length + Number(chapterStarts.some(chapter => chapter.id.startsWith('initial-')))} onClose={()=>setContactOpen(false)} onStory={setPanel} onCall={()=>setModal('calls')} onSearch={()=>{setContactOpen(false);setMessageSearch('');setTimeout(()=>conversation.current?.querySelector<HTMLInputElement>('.conversation-search input')?.focus(),500);}}/>}
       </section>}
-      {panel && <dialog ref={historyDialog} className={`history-panel ${panel === 'archive' ? 'history-archive-panel' : ''} ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label="История знакомства" onCancel={event => {event.preventDefault();closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}><header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>{panel === 'archive' ? 'Архив' : 'История знакомства'}</h2></div><IconButton className={contactOpen ? "back-button" : ""} label={contactOpen?"Назад к профилю":"Закрыть историю"} onClick={closeHistory}>{contactOpen?<ArrowLeft/>:<X/>}</IconButton></header>{panel !== 'archive' && <div className="panel-tabs" role="tablist" aria-label="История знакомства">{([['moments', 'Моменты'], ['questions', 'Будущее'], ['chapters', 'Главы']] as const).map(([tab, label]) => <button key={tab} role="tab" aria-selected={panel === tab} onClick={() => setPanel(tab)}>{label}</button>)}</div>}<div className="panel-content">
+      {panel && <dialog ref={historyDialog} className={`history-panel ${panel === 'archive' ? 'history-archive-panel' : ''} ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label={historyChapter ? 'История главы' : 'История знакомства'} onCancel={event => {event.preventDefault();if (historyChapter) closeChapterHistory(); else closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}>
+        <header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>{historyChapter ? 'История главы' : panel === 'archive' ? 'Архив' : 'История знакомства'}</h2></div>
+          <IconButton className={historyChapter || contactOpen ? 'back-button' : ''} label={historyChapter ? 'Назад к главам' : contactOpen ? 'Назад к профилю' : 'Закрыть историю'} onClick={historyChapter ? closeChapterHistory : closeHistory}>{historyChapter || contactOpen ? <ArrowLeft/> : <X/>}</IconButton>
+        </header>
+        {panel !== 'archive' && !historyChapter && <div className="panel-tabs" role="tablist" aria-label="История знакомства">{([['moments', 'Моменты'], ['questions', 'Будущее'], ['chapters', 'Главы']] as const).map(([tab, label]) => <button key={tab} role="tab" aria-selected={panel === tab} onClick={() => setPanel(tab)}>{label}</button>)}</div>}<div className="panel-content">
         {demoMode && <p className="panel-demo">Демонстрация механик. Ответы собеседника моделируются вручную.</p>}
         <fieldset className="feature-fields">
         {panel === 'moments' && <>
@@ -905,7 +934,7 @@ export default function App() {
           renderAction={card => recordArchiveAction('question', card.id, true)}
           onAnswer={(id, text) => live.store?.answerFutureQuestion(chat.id, id, text) ?? Promise.resolve(false)}
         />}
-        {panel === 'chapters' && !demoMode && live.store && <ChaptersPanel
+        {panel === 'chapters' && !demoMode && live.store && <><div hidden={!!historyChapter}><ChaptersPanel
           key={chat.id}
           cards={chapterCards}
           boundaries={chapterStarts}
@@ -916,7 +945,19 @@ export default function App() {
           onCreate={title => live.store?.createChapter(chat.id, title) ?? Promise.resolve(false)}
           onDecide={(id, status) => live.store?.decideChapter(chat.id, id, status) ?? Promise.resolve(false)}
           onJump={jumpToChapter}
-        />}
+          onHistory={openChapterHistory}
+        /></div>
+          {historyChapter && <ChapterHistory
+            key={`${chat.id}:${historyChapter.id}`}
+            chapter={historyChapter} boundaries={chapterStarts} moments={allMoments} questions={futureQuestionCards} now={questionClock}
+            momentsLoading={momentsStatus?.loading ?? true} questionsLoading={futureQuestions?.loading ?? true}
+            momentsError={momentsStatus?.error} questionsError={futureQuestions?.error}
+            archivedMomentIds={archivedMomentIds} archivedQuestionIds={archivedQuestionIds}
+            onReloadMoments={() => void live.store?.loadMoments(chat.id)} onReloadQuestions={() => void live.store?.loadFutureQuestions(chat.id)}
+            renderMoment={moment => renderMoment(moment, archivedMomentIds.has(moment.serverId!), false)}
+            onAnswer={(id, text) => live.store?.answerFutureQuestion(chat.id, id, text) ?? Promise.resolve(false)}
+          />}
+        </>}
         {panel === 'chapters' && demoMode && <><h3>Давай начнём заново</h3><p className="muted">Новая глава начинается, когда вы оба согласны. Всё, что было до неё, остаётся.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); if (!chapterTitle.trim()) return; setState(previous => ({ ...previous, chapters: [...previous.chapters, { id: id(), chatId: chat.id, title: chapterTitle.trim(), status: 'pending' }] })); setChapterTitle(''); }}><label>Название главы<input value={chapterTitle} onChange={event => setChapterTitle(event.target.value)} placeholder="Чуть ближе" maxLength={70} required /></label><button className="primary">Предложить новую главу</button></form>{state.chapters.filter(item => item.chatId === chat.id).map(item => <article className="history-card" key={item.id}><span className="eyebrow">{item.status === 'pending' ? 'ЖДЁМ СОГЛАСИЯ' : 'НОВАЯ ГЛАВА'}</span><h3>{item.title}</h3>{item.status === 'pending' ? <button className="secondary" onClick={() => { setState(previous => acceptChapter(previous, item.id));  }}>Смоделировать согласие {chat.name}</button> : <p className="muted">Вы решили продолжить с новой страницы.</p>}</article>)}</>}
       </fieldset></div>{wide && <ChatListDivider width={sidebarWidth} maximum={maximumChatListWidth} onResize={resizeChatList} inHistory />}</dialog>}
     </main>}
@@ -940,7 +981,7 @@ export default function App() {
       </form>
     </Modal>}
     {modal === 'settings' && account && <Modal title="Настройки" onClose={closeModal}>
-      <AccountSettings user={account} onUpdate={acceptUser} onExpired={clearUser} />
+      <AccountSettings key={account.id} user={account} onUpdate={acceptUser} onExpired={clearUser} />
       <button className="setting-row" disabled={loggingOut} onClick={() => { void signOut(); }}><LogOut /><span>{loggingOut ? 'Выходим…' : 'Выйти из аккаунта'}</span><ChevronRight /></button>
       {accountError && <p className="auth-error" role="alert">{accountError}</p>}
       {removedUndo && <button className="setting-row" onClick={() => { setState(previous => restoreMessages(previous, removedUndo)); setRemovedUndo(null); }}><Reply /><span>Восстановить последние удалённые сообщения</span></button>}

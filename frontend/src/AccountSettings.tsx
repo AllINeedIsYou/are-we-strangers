@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, KeyRound, Mail, Phone } from 'lucide-react';
+import { Check, ChevronRight, CircleAlert, KeyRound, Mail, Phone } from 'lucide-react';
 import { ApiError, authApi, friendlyError, type Account } from './authApi';
 import PasswordRecoveryForm from './PasswordRecoveryForm';
+import EmailChangeForm from './EmailChangeForm';
 
 type Props = { user: Account; onUpdate: (user: Account) => void; onExpired: () => void };
 
@@ -12,10 +13,12 @@ export default function AccountSettings({ user, onUpdate, onExpired }: Props) {
   const [retryAt, setRetryAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [notice, setNotice] = useState<'email' | 'password' | 'phone' | null>(null);
+  const [emailChanged, setEmailChanged] = useState(false);
   const mounted = useRef(true);
   const remaining = Math.max(0, Math.ceil((retryAt - now) / 1000));
   const verified = !!user.email_verified_at;
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { setSent(false); setError(''); setRetryAt(0); }, [user.email]);
 
   useEffect(() => {
     if (!retryAt) return;
@@ -47,13 +50,14 @@ export default function AccountSettings({ user, onUpdate, onExpired }: Props) {
   return <section className="account-settings" aria-label="Аккаунт">
     <div className="account-identity"><strong>{user.name}</strong><span>{user.username}</span></div>
     <details className="account-security-group">
-      <summary><Mail /><span>Почта<small>{user.email}</small></span><ChevronRight /></summary>
+      <summary><Mail /><span>Почта<small className="account-email"><span>{user.email}</span>{!verified && <span className="email-unverified-mark" role="img" aria-label="Почта не подтверждена" title="Почта не подтверждена"><CircleAlert aria-hidden="true" /></span>}</small></span><ChevronRight /></summary>
       <div className="account-security-actions">
-        <button className="security-action" onClick={() => setNotice('email')}><span>Сменить почту</span><ChevronRight /></button>
-        <button className="security-action" disabled={busy || verified || remaining > 0} onClick={() => { void request(); }}>
+        <button className="security-action" disabled={busy} aria-expanded={notice === 'email'} onClick={() => { setNotice(value => value === 'email' ? null : 'email'); setEmailChanged(false); }}><span>Сменить почту</span><ChevronRight /></button>
+        {notice === 'email' && <EmailChangeForm key={`${user.id}:${user.email}`} user={user} onExpired={onExpired} onUpdate={updated => { onUpdate(updated); setNotice(null); setEmailChanged(true); }} />}
+        {emailChanged && <p className="auth-success" role="status">Почта изменена. Подтверди новый адрес по ссылке из письма — нажми «Подтвердить почту».</p>}
+        <button className="security-action" disabled={busy || verified || remaining > 0 || notice === 'email'} onClick={() => { void request(); }}>
           <span>{verified ? 'Почта подтверждена' : 'Подтвердить почту'}{!verified && <small>{busy ? 'Отправляем письмо…' : remaining ? `Повторная отправка через ${remaining} с` : sent ? 'Отправить письмо ещё раз' : 'Отправить ссылку на почту'}</small>}</span>{verified ? <Check /> : <ChevronRight />}
         </button>
-        {notice === 'email' && <p className="security-notice" role="status">Смена почты через код Telegram-бота появится позже.</p>}
         {sent && !verified && <p className="auth-description" role="status">Письмо отправлено. Перейди по ссылке в течение 15 минут. Если письма нет, проверь «Спам».</p>}
         {error && <p className="auth-error" role="alert">{error}</p>}
       </div>
