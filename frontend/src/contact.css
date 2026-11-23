@@ -24,6 +24,10 @@
 .profile-actions button{height:63px;border:1px solid #ffffff0b;border-radius:15px;background:#1b1b1f8c;color:#ddd5d9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;transition:background .2s,transform .2s}
 .profile-actions button:hover{background:#2d1a20}
 .profile-actions button:active{transform:scale(.96)}
+.profile-actions button:disabled{opacity:.55;cursor:default;transform:none}
+.profile-notification-feedback{margin:-5px 0 20px;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.profile-notification-feedback p{color:#ed8ca3;margin:0 0 7px}
+.profile-notification-feedback button{color:#c5b4bd;padding:5px 0;text-align:left}
 .profile-actions svg{width:20px;height:20px;stroke-width:1.5}
 .profile-actions span{font-size:11px}
 .profile-actions button[aria-pressed=true]{color:#e7a0b0;background:#520a1b45}

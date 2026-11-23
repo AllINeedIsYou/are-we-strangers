@@ -1,5 +1,7 @@
 from backend.app.core.telegram_config import telegram_settings
 from backend.app.schemas.email_change import EmailChangeChallengeResponse, EmailChangeRequest, EmailChangeConfirmRequest
+from backend.app.schemas.notifications import MutedChatsResponse
+from backend.app.services.notifications import get_user_muted_chats
 from backend.database.session import SessionDep
 from backend.app.api.dependencies import CurrentUser
 from fastapi import APIRouter
@@ -32,3 +34,7 @@ def request_endpoint_email_change(session:SessionDep,user:CurrentUser,data:Email
 def confirm_endpoint_email_change(session:SessionDep,user:CurrentUser,data:EmailChangeConfirmRequest):
     user=confirm_email_change(session, user, data)
     return user
+
+@user_router.get('/me/muted-chats',response_model=MutedChatsResponse)
+def get_user_muted_chats_endpoint(session:SessionDep,user:CurrentUser):
+    return get_user_muted_chats(session, user)

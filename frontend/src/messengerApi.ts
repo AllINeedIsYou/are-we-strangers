@@ -5,6 +5,11 @@ export type PublicUser = { id: number; name: string; username: string; bio?: str
 export type ArchiveKind = 'chat' | 'moment' | 'question';
 export type ServerArchive = { chat_ids: number[]; moment_ids: number[]; question_ids: number[] };
 export type ArchiveChange = { chat_id: number; item_type: ArchiveKind; item_id: number; archived: boolean };
+export type ChatNotifications = { chat_id: number; muted: boolean };
+export function isChatNotifications(value: unknown): value is ChatNotifications {
+  const row = value as ChatNotifications | null;
+  return !!row && positive(row.chat_id) && typeof row.muted === 'boolean';
+}
 export function isArchiveChange(value: unknown): value is ArchiveChange {
   const row = value as ArchiveChange | null;
   return !!row && positive(row.chat_id) && positive(row.item_id) && ['chat', 'moment', 'question'].includes(row.item_type)
@@ -99,6 +104,16 @@ function list<T>(value: unknown, guard: (value: unknown) => value is T): T[] {
   return value;
 }
 export const messengerApi = {
+  mutedChats: async (signal?: AbortSignal) => {
+    const value = await apiRequest<{ chat_ids: number[] }>('/api/user/me/muted-chats', undefined, { signal });
+    if (!value || !ids(value.chat_ids)) throw new ApiError(0, 'Не удалось прочитать настройки уведомлений');
+    return [...new Set(value.chat_ids)].sort((a, b) => a - b);
+  },
+  setChatNotifications: async (chatId: number, muted: boolean, signal?: AbortSignal) => {
+    const value = checked(await apiRequest(`/api/chats/${chatId}/notifications`, { muted }, { method: 'PATCH', signal }), isChatNotifications);
+    if (value.chat_id !== chatId || value.muted !== muted) throw new ApiError(0, 'Некорректный ответ о настройке уведомлений');
+    return value;
+  },
   archive: async (signal?: AbortSignal) => checked(await apiRequest('/api/archive', undefined, { signal }), isArchive),
   setArchived: async (chatId: number, kind: ArchiveKind, itemId: number, archived: boolean, signal?: AbortSignal) => {
     const suffix = kind === 'chat' ? '' : kind === 'moment' ? `/moments/${itemId}` : `/future-questions/${itemId}`;

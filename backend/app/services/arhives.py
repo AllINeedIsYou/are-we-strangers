@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from backend.app.models import ArchivedMoment,ArchivedFutureQuestion,ArchivedChat,Users,Chats,Moments,FutureQuestion
 from backend.app.schemas.arhives import ArchiveChangeResponse,ArchiveRequest,ArchiveResponse
 from backend.app.services.chats import get_chat_for_user
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError,NoResultFound
+from sqlalchemy.exc import SQLAlchemyError,NoResultFound
 from fastapi import HTTPException
 
 def get_user_archive(session:Session,user:Users):

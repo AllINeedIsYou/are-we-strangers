@@ -17,6 +17,7 @@ import ChapterHistory from './ChapterHistory';
 import ChapterProposalNotice from './ChapterProposalNotice';
 import ScrollToBottom from './ScrollToBottom';
 import useArchive from './useArchive';
+import useNotifications from './useNotifications';
 import { archiveKey } from './archiveStore';
 import ArchiveAction from './ArchiveAction';
 import ArchiveEmpty from './ArchiveEmpty';
@@ -178,6 +179,7 @@ export default function App() {
     if (!demoMode) await animateMessageDeletion(ids, signal);
   });
   const archive = useArchive(demoMode ? null : live.store?.archives);
+  const notifications = useNotifications(demoMode ? null : live.store?.notifications);
   const archivedChatIds = new Set(archive.data?.chat_ids);
   const archivedMomentIds = new Set(archive.data?.moment_ids);
   const archivedQuestionIds = new Set(archive.data?.question_ids);
@@ -525,7 +527,8 @@ export default function App() {
   }
   function pulseNotification(key: string) {
     const now = Date.now();
-    let silent=false;try{silent=localStorage.getItem(`aws.muted.${key}`)==='true';}catch{/* Notifications remain available without storage. */}
+    let silent = key.startsWith('server-') ? !live.store?.notifications.canNotify(Number(key.slice(7))) : false;
+    if (!key.startsWith('server-')) try{silent=localStorage.getItem(`aws.muted.${key}`)==='true';}catch{/* Demo preference stays local. */}
     if (!silent && canPulse(now, lastPulse.current)) { lastPulse.current = now; setPulse(true); pulseTimer.current = setTimeout(() => setPulse(false), 1400); }
   }
   function cancelEdit() {
@@ -930,7 +933,7 @@ export default function App() {
           </>}
           {inlineError && !forwardIds && <p className="composer-feedback" role="alert">{inlineError}<button aria-label="Закрыть сообщение об ошибке" onClick={()=>setInlineError('')}><X size={14}/></button></p>}
         </div></div>
-        {contactVisible&&<ContactProfile key={chat.id} open={contactOpen} chat={chat} state={state} serverChapterCount={demoMode ? undefined : chapterCards.length + Number(chapterStarts.some(chapter => chapter.id.startsWith('initial-')))} onClose={()=>setContactOpen(false)} onStory={setPanel} onCall={()=>setModal('calls')} onSearch={()=>{setContactOpen(false);setMessageSearch('');setTimeout(()=>conversation.current?.querySelector<HTMLInputElement>('.conversation-search input')?.focus(),500);}}/>}
+        {contactVisible&&<ContactProfile key={chat.id} open={contactOpen} chat={chat} state={state} serverChapterCount={demoMode ? undefined : chapterCards.length + Number(chapterStarts.some(chapter => chapter.id.startsWith('initial-')))} notifications={demoMode||!chat.serverId?undefined:{muted:notifications.chatIds===null?undefined:notifications.chatIds.includes(chat.serverId),busy:!!notifications.busy[chat.serverId],error:notifications.errors[chat.serverId]||notifications.error,onChange:muted=>live.store!.notifications.set(chat.serverId!,muted),onRetry:()=>{void live.store?.notifications.retry();}}} onClose={()=>setContactOpen(false)} onStory={setPanel} onCall={()=>setModal('calls')} onSearch={()=>{setContactOpen(false);setMessageSearch('');setTimeout(()=>conversation.current?.querySelector<HTMLInputElement>('.conversation-search input')?.focus(),500);}}/>}
       </section>}
       {panel && <dialog ref={historyDialog} className={`history-panel ${panel === 'archive' ? 'history-archive-panel' : ''} ${contactOpen?'profile-history':''} ${historyClosing?'history-closing':''}`} aria-label={historyChapter ? 'История главы' : 'История знакомства'} onCancel={event => {event.preventDefault();if (historyChapter) closeChapterHistory(); else closeHistory();}} onClick={event => { if (event.target === historyDialog.current) closeHistory(); }}>
         <header><div><span className="eyebrow">ВЫ И {chat.name.toLocaleUpperCase('ru')}</span><h2>{historyChapter ? 'История главы' : panel === 'archive' ? 'Архив' : 'История знакомства'}</h2></div>

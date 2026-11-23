@@ -7,6 +7,7 @@ import { profileBirthday } from './profile';
 
 type ProfileTab = 'media' | 'files' | 'links' | 'voice' | 'gif';
 type StoryTab = 'moments' | 'questions' | 'chapters' | 'archive';
+type NotificationSettings = { muted: boolean | undefined; busy: boolean; error: string; onChange: (muted: boolean) => Promise<boolean>; onRetry: () => void };
 const tabs: [ProfileTab, string][] = [['media','Медиа'],['files','Файлы'],['links','Ссылки'],['voice','Голосовые'],['gif','GIF']];
 
 function MediaTile({asset,onOpen}:{asset:MediaAsset;onOpen:()=>void}) {
@@ -22,12 +23,13 @@ function MediaPreview({asset,onClose}:{asset:MediaAsset;onClose:()=>void}) {
   useEffect(()=>{const node=dialog.current!;node.showModal();return()=>node.close();},[]);
   return <dialog ref={dialog} className="profile-media-preview glass" aria-label={asset.name} onCancel={onClose} onClick={e=>{if(e.target===dialog.current)onClose();}}><header><span>{asset.name}</span><button aria-label="Закрыть медиа" onClick={onClose}><X/></button></header><MediaView asset={asset}/></dialog>;
 }
-export default function ContactProfile({open,chat,state,serverChapterCount,onClose,onStory,onCall,onSearch}:{open:boolean;chat:Chat;state:DemoState;serverChapterCount?:number;onClose:()=>void;onStory:(tab:StoryTab)=>void;onCall:()=>void;onSearch:()=>void}) {
+export default function ContactProfile({open,chat,state,serverChapterCount,onClose,onStory,onCall,onSearch,notifications}:{open:boolean;chat:Chat;state:DemoState;serverChapterCount?:number;onClose:()=>void;onStory:(tab:StoryTab)=>void;onCall:()=>void;onSearch:()=>void;notifications?:NotificationSettings}) {
   const [tab,setTab]=useState<ProfileTab>('media');
   const [details,setDetails]=useState<'about'|'story'>('about');
   const [compact,setCompact]=useState(false);
   const [preview,setPreview]=useState<MediaAsset|null>(null);
-  const [muted,setMuted]=useState(()=>{try{return localStorage.getItem(`aws.muted.${chat.id}`)==='true';}catch{return false;}});
+  const [demoMuted,setDemoMuted]=useState(()=>{if(chat.serverId)return false;try{return localStorage.getItem(`aws.muted.${chat.id}`)==='true';}catch{return false;}});
+  const muted=notifications?notifications.muted??false:demoMuted;
   const back=useRef<HTMLButtonElement>(null);
   const scroller=useRef<HTMLDivElement>(null);
   useEffect(()=>{if(open){const frame=requestAnimationFrame(()=>back.current?.focus({preventScroll:true}));return()=>cancelAnimationFrame(frame);}},[open]);
@@ -39,15 +41,19 @@ export default function ContactProfile({open,chat,state,serverChapterCount,onClo
   const momentCount=state.moments.filter(moment=>moment.chatId===chat.id).length;
   const chapterCount=serverChapterCount ?? state.chapters.filter(chapter=>chapter.chatId===chat.id).length;
   const status=chat.serverId ? chat.username || 'Собеседник' : chat.online?'В сети':'был(а) недавно';
-  function toggleMute(){setMuted(value=>{const next=!value;try{localStorage.setItem(`aws.muted.${chat.id}`,String(next));}catch{/* Session preference still works. */}return next;});}
+  function toggleMute(){
+    if(notifications){void notifications.onChange(!muted);return;}
+    setDemoMuted(value=>{const next=!value;try{localStorage.setItem(`aws.muted.${chat.id}`,String(next));}catch{/* Session preference still works. */}return next;});
+  }
   return <section className={`contact-profile ${open?'profile-open':''} ${compact?'profile-compact':''}`} aria-label={`Профиль: ${chat.name}`} inert={!open}>
     <div ref={scroller} className="profile-scroll" onScroll={event=>setCompact(event.currentTarget.scrollTop>130)}>
       <header className="profile-topbar"><button ref={back} className="glass back-button" aria-label="Назад к переписке" onClick={onClose}><ArrowLeft/></button><div className="profile-compact-name" aria-hidden={!compact}><strong>{chat.name}</strong><small>{status}</small></div><button className="glass" aria-label="Поиск в этом чате" onClick={onSearch}><Search/></button></header>
       <div className="profile-content">
         <div className="profile-hero" aria-hidden={compact}><Avatar initial={chat.initial} asset={chat.avatar}/><h1>{chat.name}</h1><p className={chat.online?'online':''}>{status}</p></div>
         <nav className="profile-actions" aria-label="Действия с собеседником">
-          <button onClick={onClose}><MessageCircle/><span>Чат</span></button><button onClick={onCall}><Phone/><span>Звонок</span></button><button onClick={onCall}><Video/><span>Видео</span></button><button onClick={toggleMute} aria-pressed={muted}>{muted?<BellOff/>:<Bell/>}<span>{muted?'Выключены':'Уведомления'}</span></button>
+          <button onClick={onClose}><MessageCircle/><span>Чат</span></button><button onClick={onCall}><Phone/><span>Звонок</span></button><button onClick={onCall}><Video/><span>Видео</span></button><button onClick={toggleMute} disabled={!!notifications&&(notifications.busy||notifications.muted===undefined)} aria-busy={notifications?.busy||undefined} aria-pressed={notifications&&notifications.muted===undefined?undefined:muted}>{muted?<BellOff/>:<Bell/>}<span>{notifications?.busy?'Сохраняем…':notifications&&notifications.muted===undefined&&!notifications.error?'Загружаем…':muted?'Выключены':'Уведомления'}</span></button>
         </nav>
+        {notifications?.error&&<div className="profile-notification-feedback"><p role="alert">{notifications.error}</p><button onClick={notifications.onRetry}>Повторить загрузку уведомлений</button></div>}
         <section className={`profile-details details-${details}`} aria-label="О собеседнике и ваша история">
           <div className="profile-details-tabs" role="tablist" aria-label="Раздел профиля"><span className="details-tab-indicator" aria-hidden="true"/>{([['about','О человеке'],['story','Ваша история']] as const).map(([key,label])=><button key={key} id={`details-tab-${key}`} role="tab" aria-selected={details===key} aria-controls={`details-panel-${key}`} tabIndex={details===key?0:-1} onClick={()=>setDetails(key)} onKeyDown={event=>{if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault();const next=key==='about'?'story':'about';setDetails(next);document.getElementById(`details-tab-${next}`)?.focus();}}}>{key==='about'?<UserRound/>:<svg className="story-tab-star" viewBox="0 0 60 108" aria-hidden="true"><path fill="currentColor" d="M30 0C28 46 27 51 0 54C27 57 28 62 30 108C32 62 33 57 60 54C33 51 32 46 30 0Z"/></svg>}<span>{label}</span>{key==='story'&&momentCount+chapterCount>0&&<i aria-hidden="true"/>}</button>)}</div>
           <div className="profile-details-panels">

@@ -1,4 +1,7 @@
 from fastapi import APIRouter, Response
+
+from backend.app.schemas.notifications import ChatNotificationsResponse, ChatNotificationsRequest
+from backend.app.services.notifications import set_chat_notifications
 from backend.database.session import SessionDep
 from backend.app.api.dependencies import CurrentUser
 from backend.app.schemas.chats import ChatResponse,CreateChatRequest
@@ -121,3 +124,21 @@ def unpin_endpoint_message(session:SessionDep,user:CurrentUser,chat_id:int,messa
         )
 
     return Response(status_code=204)
+
+
+@chats_router.patch('/{chat_id}/notifications',response_model=ChatNotificationsResponse)
+def set_chat_notifications_endpoint(session:SessionDep,user:CurrentUser,chat_id:int,data:ChatNotificationsRequest):
+    response,changed=set_chat_notifications(session, user, chat_id, data)
+
+    if changed:
+        event={
+            "type":"chat.notifications_changed",
+            **response.model_dump(mode='json')
+        }
+        from_thread.run(
+            connection_manager.send_to_user,
+            user.id,
+            event
+        )
+
+    return response

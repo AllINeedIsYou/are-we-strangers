@@ -21,7 +21,7 @@ function harness(api: Partial<typeof messengerApi> = {}, onDelete?: (ids: string
   const sockets: Socket[] = [], incoming: string[] = [];
   let expired = false;
   const store = new MessengerStore(3, {
-    api: { ...messengerApi, archive: async () => ({ chat_ids: [], moment_ids: [], question_ids: [] }), chats: async () => [chat], messages: async () => [], pins: async () => [], ...api },
+    api: { ...messengerApi, mutedChats: async () => [], archive: async () => ({ chat_ids: [], moment_ids: [], question_ids: [] }), chats: async () => [chat], messages: async () => [], pins: async () => [], ...api },
     connect: () => { const socket = new Socket(); sockets.push(socket); return socket as unknown as WebSocket; },
     onExpired: () => { expired = true; }, onIncoming: key => incoming.push(key), onDelete,
   });

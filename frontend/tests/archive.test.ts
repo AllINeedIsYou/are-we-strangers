@@ -96,7 +96,7 @@ test('archive 401 expires the session; ordinary loading errors do not become a f
 test('messenger forwards archive events to its account store and refreshes on reconnection', async t => {
   const socket = { readyState: 1, onmessage: null as null | ((event: { data: string }) => void), onclose: null, onerror: null, close() {}, send() {} };
   let data = emptyArchive(), loads = 0;
-  const store = new MessengerStore(1, { api: { ...messengerApi, archive: async () => { loads++; return structuredClone(data); }, chats: async () => [], messages: async () => [] }, connect: () => socket as unknown as WebSocket, onExpired() {}, onIncoming() {} });
+  const store = new MessengerStore(1, { api: { ...messengerApi, mutedChats: async () => [], archive: async () => { loads++; return structuredClone(data); }, chats: async () => [], messages: async () => [] }, connect: () => socket as unknown as WebSocket, onExpired() {}, onIncoming() {} });
   t.after(() => store.stop()); store.start(); await tick();
   data = { chat_ids: [], moment_ids: [19], question_ids: [] };
   socket.onmessage?.({ data: JSON.stringify({ type: 'archive.changed', ...change(true) }) }); await tick();
